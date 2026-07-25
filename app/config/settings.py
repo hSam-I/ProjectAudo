@@ -1,10 +1,17 @@
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+from dotenv import load_dotenv
 
-APP_NAME = "Project Audo"
-VERSION = "0.1.0"
+import os
 
-DATA_DIR = ROOT_DIR / "datasets"
-MODELS_DIR = ROOT_DIR / "models"
-LOGS_DIR = ROOT_DIR / "logs"
+ROOT_DIR = Path(__file__).resolve().parents[2]
+
+load_dotenv(ROOT_DIR / ".env")
+
+APP_NAME = os.getenv("APP_NAME", "Project Audo")
+APP_ENV = os.getenv("APP_ENV", "development")
+
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
+BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY")
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")

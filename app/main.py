@@ -1,14 +1,10 @@
-from pathlib import Path
+from app.logging.logger import logger
+from app.config.settings import APP_NAME, APP_ENV
+
 
 def main():
-    print("=" * 40)
-    print("🚀 Project Audo")
-    print("=" * 40)
-
-    project_root = Path(__file__).resolve().parent.parent
-
-    print(f"Project Root : {project_root}")
-    print("System Started Successfully")
+    logger.info(f"{APP_NAME} started")
+    logger.info(f"Environment: {APP_ENV}")
 
 
 if __name__ == "__main__":
