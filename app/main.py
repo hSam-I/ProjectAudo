@@ -1,8 +1,17 @@
 from app.data.binance_provider import BinanceProvider
 from app.data.validator import DataValidator
+
 from app.indicators.indicator_engine import IndicatorEngine
-from app.logging.logger import logger
+
 from app.strategy.ema_rsi_strategy import EMARSIStrategy
+
+from app.risk.risk_manager import RiskManager
+
+from app.decision.signal_scorer import SignalScorer
+
+from app.backtesting.backtester import Backtester
+
+from app.logging.logger import logger
 
 
 def main():
@@ -21,63 +30,82 @@ def main():
 
     logger.info("Market data received successfully")
 
-    # Calculate all indicators
+    # Calculate indicators
     df = IndicatorEngine.calculate_all(df)
 
-    # Last candle
+    # Latest candle
     last = df.iloc[-1]
 
     # Strategy
     strategy = EMARSIStrategy()
     signal = strategy.generate_signal(df)
 
-    # Trend
-    trend = (
-        "BULLISH 🟢"
-        if last["ema_20"] > last["ema_50"]
-        else "BEARISH 🔴"
+    # Signal score
+    score, confidence, reasons = SignalScorer.score(df)
+
+    # Risk
+    risk = RiskManager()
+
+    balance = 10000
+
+    risk_amount = risk.risk_amount(balance)
+
+    stop_loss = risk.stop_loss(
+        last["close"],
+        last["atr"],
     )
 
-    # RSI Status
-    if last["rsi"] < 30:
-        rsi_status = "OVERSOLD 🟢"
-    elif last["rsi"] > 70:
-        rsi_status = "OVERBOUGHT 🔴"
-    else:
-        rsi_status = "NEUTRAL 🟡"
+    take_profit = risk.take_profit(
+        last["close"],
+        last["atr"],
+    )
 
-    # MACD Status
-    if last["macd_histogram"] > 0:
-        macd_status = "BULLISH MOMENTUM 🟢"
-    else:
-        macd_status = "BEARISH MOMENTUM 🔴"
+    # Backtest
+    backtester = Backtester()
+    portfolio = backtester.run(df)
 
-    # Report
     print()
-    print("=" * 60)
+
+    print("=" * 70)
     print("                    PROJECT AUDO")
-    print("                 MARKET ANALYSIS")
-    print("=" * 60)
+    print("                 AI MARKET REPORT")
+    print("=" * 70)
 
     print(f"Current Price : {last['close']:.2f}")
-    print(f"EMA 20        : {last['ema_20']:.2f}")
-    print(f"EMA 50        : {last['ema_50']:.2f}")
+    print(f"EMA20         : {last['ema_20']:.2f}")
+    print(f"EMA50         : {last['ema_50']:.2f}")
     print(f"RSI           : {last['rsi']:.2f}")
     print(f"MACD          : {last['macd']:.2f}")
-    print(f"MACD Signal   : {last['macd_signal']:.2f}")
-    print(f"MACD Hist     : {last['macd_histogram']:.2f}")
+    print(f"ATR           : {last['atr']:.2f}")
 
-    print("-" * 60)
+    print("-" * 70)
 
-    print(f"Trend         : {trend}")
-    print(f"RSI Status    : {rsi_status}")
-    print(f"MACD Status   : {macd_status}")
+    print(f"Signal        : {signal}")
+    print(f"Score         : {score}/100")
+    print(f"Confidence    : {confidence}")
 
-    print("-" * 60)
+    print("-" * 70)
 
-    print(f"Trading Signal: {signal}")
+    print("Reasons")
 
-    print("=" * 60)
+    for reason in reasons:
+        print(f"  ✓ {reason}")
+
+    print("-" * 70)
+
+    print(f"Balance       : ${balance:,.2f}")
+    print(f"Risk Amount   : ${risk_amount:,.2f}")
+    print(f"Stop Loss     : {stop_loss:.2f}")
+    print(f"Take Profit   : {take_profit:.2f}")
+
+    print("-" * 70)
+
+    print("Backtesting")
+
+    print(f"Trades        : {portfolio.total_trades}")
+    print(f"Balance       : ${portfolio.balance:,.2f}")
+
+    print("=" * 70)
 
 
 if __name__ == "__main__":
