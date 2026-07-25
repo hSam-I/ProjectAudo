@@ -13,27 +13,41 @@ class Backtester:
 
     def run(self, df):
 
+        current_trade = None
+
         for i in range(50, len(df)):
 
             history = df.iloc[: i + 1]
 
             signal = self.strategy.generate_signal(history)
 
-            price = history.iloc[-1]["close"]
+            candle = history.iloc[-1]
 
-            if signal == "BUY":
+            price = candle["close"]
 
-                trade = Trade(
+            timestamp = str(candle["timestamp"])
+
+            if signal == "BUY" and current_trade is None:
+
+                current_trade = Trade(
                     symbol="BTC/USDT",
                     side="BUY",
                     entry_price=price,
-                    exit_price=price,
                     quantity=1,
-                    profit=0,
-                    entry_time=str(history.iloc[-1]["timestamp"]),
-                    exit_time=str(history.iloc[-1]["timestamp"]),
+                    entry_time=timestamp,
                 )
 
-                self.portfolio.add_trade(trade)
+                self.portfolio.open_trade(current_trade)
+
+            elif signal == "SELL" and current_trade is not None:
+
+                current_trade.close(
+                    exit_price=price,
+                    exit_time=timestamp,
+                )
+
+                self.portfolio.close_trade(current_trade)
+
+                current_trade = None
 
         return self.portfolio

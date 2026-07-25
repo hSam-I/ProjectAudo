@@ -1,17 +1,16 @@
+from app.backtesting.backtester import Backtester
+from app.config.settings import settings
 from app.data.binance_provider import BinanceProvider
 from app.data.validator import DataValidator
-
+from app.decision.signal_scorer import SignalScorer
 from app.indicators.indicator_engine import IndicatorEngine
-
+from app.logging.logger import logger
+from app.risk.risk_manager import RiskManager
 from app.strategy.ema_rsi_strategy import EMARSIStrategy
 
-from app.risk.risk_manager import RiskManager
 
-from app.decision.signal_scorer import SignalScorer
-
-from app.backtesting.backtester import Backtester
-
-from app.logging.logger import logger
+def print_separator():
+    print("-" * 70)
 
 
 def main():
@@ -19,9 +18,9 @@ def main():
     provider = BinanceProvider()
 
     df = provider.fetch_ohlcv(
-        symbol="BTC/USDT",
-        timeframe="1h",
-        limit=100,
+        symbol=settings.symbol,
+        timeframe=settings.timeframe,
+        limit=settings.candle_limit,
     )
 
     if not DataValidator.validate(df):
@@ -30,23 +29,19 @@ def main():
 
     logger.info("Market data received successfully")
 
-    # Calculate indicators
     df = IndicatorEngine.calculate_all(df)
 
-    # Latest candle
-    last = df.iloc[-1]
-
-    # Strategy
     strategy = EMARSIStrategy()
+
     signal = strategy.generate_signal(df)
 
-    # Signal score
     score, confidence, reasons = SignalScorer.score(df)
 
-    # Risk
+    last = df.iloc[-1]
+
     risk = RiskManager()
 
-    balance = 10000
+    balance = settings.starting_balance
 
     risk_amount = risk.risk_amount(balance)
 
@@ -60,12 +55,11 @@ def main():
         last["atr"],
     )
 
-    # Backtest
     backtester = Backtester()
+
     portfolio = backtester.run(df)
 
     print()
-
     print("=" * 70)
     print("                    PROJECT AUDO")
     print("                 AI MARKET REPORT")
@@ -78,32 +72,39 @@ def main():
     print(f"MACD          : {last['macd']:.2f}")
     print(f"ATR           : {last['atr']:.2f}")
 
-    print("-" * 70)
+    print_separator()
 
     print(f"Signal        : {signal}")
     print(f"Score         : {score}/100")
     print(f"Confidence    : {confidence}")
 
-    print("-" * 70)
+    print_separator()
 
     print("Reasons")
 
     for reason in reasons:
         print(f"  ✓ {reason}")
 
-    print("-" * 70)
+    print_separator()
 
     print(f"Balance       : ${balance:,.2f}")
     print(f"Risk Amount   : ${risk_amount:,.2f}")
     print(f"Stop Loss     : {stop_loss:.2f}")
     print(f"Take Profit   : {take_profit:.2f}")
 
-    print("-" * 70)
+    print_separator()
 
     print("Backtesting")
 
-    print(f"Trades        : {portfolio.total_trades}")
+    print(f"Total Trades  : {portfolio.total_trades}")
+    print(f"Closed Trades : {portfolio.closed_trades}")
+    print(f"Open Trades   : {portfolio.open_trades}")
     print(f"Balance       : ${portfolio.balance:,.2f}")
+
+    print_separator()
+
+    print("Trade History")
+    print(portfolio.trade_history())
 
     print("=" * 70)
 

@@ -1,17 +1,35 @@
-from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from dotenv import load_dotenv
 
-import os
+class Settings(BaseSettings):
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+    # Exchange
+    exchange: str = "binance"
 
-load_dotenv(ROOT_DIR / ".env")
+    symbol: str = "BTC/USDT"
 
-APP_NAME = os.getenv("APP_NAME", "Project Audo")
-APP_ENV = os.getenv("APP_ENV", "development")
+    timeframe: str = "1h"
 
-BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
-BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY")
+    candle_limit: int = 1000
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+    # Portfolio
+    starting_balance: float = 10000.0
+
+    risk_percent: float = 1.0
+
+    # Strategy
+    ema_fast: int = 20
+
+    ema_slow: int = 50
+
+    rsi_period: int = 14
+
+    atr_period: int = 14
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+    )
+
+
+settings = Settings()

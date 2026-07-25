@@ -1,22 +1,36 @@
-import pandas as pd
+class EMARSIStrategy:
 
-from app.strategy.base_strategy import BaseStrategy
+    def generate_signal(self, df):
 
+        # En az iki mum gerekli
+        if len(df) < 2:
+            return "HOLD"
 
-class EMARSIStrategy(BaseStrategy):
+        previous = df.iloc[-2]
+        current = df.iloc[-1]
 
-    def generate_signal(self, df: pd.DataFrame) -> str:
+        prev_ema20 = previous["ema_20"]
+        prev_ema50 = previous["ema_50"]
 
-        last = df.iloc[-1]
+        ema20 = current["ema_20"]
+        ema50 = current["ema_50"]
 
-        ema20 = last["ema_20"]
-        ema50 = last["ema_50"]
-        rsi = last["rsi"]
+        rsi = current["rsi"]
 
-        if ema20 > ema50 and rsi < 30:
+        # EMA20 aşağıdan yukarı geçti
+        if (
+            prev_ema20 <= prev_ema50
+            and ema20 > ema50
+            and rsi < 70
+        ):
             return "BUY"
 
-        elif ema20 < ema50 and rsi > 70:
+        # EMA20 yukarıdan aşağı geçti
+        if (
+            prev_ema20 >= prev_ema50
+            and ema20 < ema50
+            and rsi > 30
+        ):
             return "SELL"
 
         return "HOLD"
