@@ -1,64 +1,140 @@
 from app.backtesting.portfolio import Portfolio
 from app.backtesting.trade import Trade
-from app.strategy.ema_rsi_strategy import EMARSIStrategy
+from app.config.settings import settings
+from app.decision.decision_engine import DecisionEngine
+from app.risk.position_sizer import PositionSizer
+from app.risk.risk_manager import RiskManager
 
 
 class Backtester:
     """
-    Executes historical backtests using historical OHLCV data.
+    Historical backtesting engine.
 
-    Important:
-    Signals are generated on the CLOSE of candle i,
-    but trades are executed on the OPEN of candle i+1
-    to avoid look-ahead bias.
+    Signals are generated on candle i (close),
+    but executed on candle i+1 (open).
+
+    This avoids look-ahead bias.
     """
 
     def __init__(self):
 
-        self.strategy = EMARSIStrategy()
-        self.portfolio = Portfolio(10000)
+        self.portfolio = Portfolio(settings.starting_balance)
+
+        self.risk_manager = RiskManager()
+
+        self.decision_engine = DecisionEngine()
 
     def run(self, df):
 
         current_trade = None
 
-        # We stop at len(df) - 1 because we execute
-        # orders on the next candle (i + 1).
         for i in range(50, len(df) - 1):
 
             history = df.iloc[: i + 1]
 
-            signal = self.strategy.generate_signal(history)
+            decision = self.decision_engine.evaluate(history)
 
-            signal_candle = history.iloc[-1]
+            signal = decision.signal
 
             execution_candle = df.iloc[i + 1]
 
-            execution_price = execution_candle["open"]
+            current_high = execution_candle["high"]
+            current_low = execution_candle["low"]
 
-            execution_time = str(execution_candle["timestamp"])
+            entry_price = execution_candle["open"]
+            entry_time = str(execution_candle["timestamp"])
 
-            # ---------- BUY ----------
+            atr = history.iloc[-1]["atr"]
+
+            # ====================================================
+            # OPEN POSITION MANAGEMENT
+            # ====================================================
+
+            if current_trade is not None:
+
+                if current_low <= current_trade.stop_loss:
+
+                    current_trade.close(
+                        exit_price=current_trade.stop_loss,
+                        exit_time=entry_time,
+                        reason="STOP_LOSS",
+                    )
+
+                    self.portfolio.close_trade(current_trade)
+
+                    current_trade = None
+
+                    continue
+
+                if current_high >= current_trade.take_profit:
+
+                    current_trade.close(
+                        exit_price=current_trade.take_profit,
+                        exit_time=entry_time,
+                        reason="TAKE_PROFIT",
+                    )
+
+                    self.portfolio.close_trade(current_trade)
+
+                    current_trade = None
+
+                    continue
+
+            # ====================================================
+            # BUY
+            # ====================================================
 
             if signal == "BUY" and current_trade is None:
 
+                risk_amount = self.risk_manager.risk_amount(
+                    self.portfolio.balance
+                )
+
+                stop_loss = self.risk_manager.stop_loss(
+                    entry_price,
+                    atr,
+                )
+
+                take_profit = self.risk_manager.take_profit(
+                    entry_price,
+                    atr,
+                )
+
+                stop_loss_distance = (
+                    self.risk_manager.stop_loss_distance(
+                        atr
+                    )
+                )
+
+                quantity = PositionSizer.calculate_position_size(
+                    balance=self.portfolio.balance,
+                    risk_amount=risk_amount,
+                    stop_loss_distance=stop_loss_distance,
+                )
+
                 current_trade = Trade(
-                    symbol="BTC/USDT",
+                    symbol=settings.symbol,
                     side="BUY",
-                    entry_price=execution_price,
-                    quantity=1,
-                    entry_time=execution_time,
+                    entry_price=entry_price,
+                    quantity=quantity,
+                    entry_time=entry_time,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    risk_amount=risk_amount,
                 )
 
                 self.portfolio.open_trade(current_trade)
 
-            # ---------- SELL ----------
+            # ====================================================
+            # SELL
+            # ====================================================
 
             elif signal == "SELL" and current_trade is not None:
 
                 current_trade.close(
-                    exit_price=execution_price,
-                    exit_time=execution_time,
+                    exit_price=entry_price,
+                    exit_time=entry_time,
+                    reason="SIGNAL",
                 )
 
                 self.portfolio.close_trade(current_trade)

@@ -2,11 +2,10 @@ from app.backtesting.backtester import Backtester
 from app.config.settings import settings
 from app.data.binance_provider import BinanceProvider
 from app.data.validator import DataValidator
-from app.decision.signal_scorer import SignalScorer
+from app.decision.decision_engine import DecisionEngine
 from app.indicators.indicator_engine import IndicatorEngine
 from app.logging.logger import logger
 from app.risk.risk_manager import RiskManager
-from app.strategy.ema_rsi_strategy import EMARSIStrategy
 
 
 def print_separator():
@@ -31,11 +30,9 @@ def main():
 
     df = IndicatorEngine.calculate_all(df)
 
-    strategy = EMARSIStrategy()
+    decision_engine = DecisionEngine()
 
-    signal = strategy.generate_signal(df)
-
-    score, confidence, reasons = SignalScorer.score(df)
+    decision = decision_engine.evaluate(df)
 
     last = df.iloc[-1]
 
@@ -74,15 +71,16 @@ def main():
 
     print_separator()
 
-    print(f"Signal        : {signal}")
-    print(f"Score         : {score}/100")
-    print(f"Confidence    : {confidence}")
+    print(f"Raw Signal    : {decision.raw_signal}")
+    print(f"Final Signal  : {decision.signal}")
+    print(f"Score         : {decision.score}/100")
+    print(f"Confidence    : {decision.confidence}")
 
     print_separator()
 
     print("Reasons")
 
-    for reason in reasons:
+    for reason in decision.reasons:
         print(f"  ✓ {reason}")
 
     print_separator()

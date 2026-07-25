@@ -1,0 +1,57 @@
+from dataclasses import dataclass
+
+import pandas as pd
+
+from app.decision.signal_filter import SignalFilter
+from app.decision.signal_scorer import SignalScorer
+from app.strategy.ema_rsi_strategy import EMARSIStrategy
+
+
+@dataclass
+class Decision:
+    """
+    Result of the decision pipeline.
+    """
+
+    raw_signal: str
+    signal: str
+
+    score: int
+    confidence: str
+
+    reasons: list[str]
+
+
+class DecisionEngine:
+    """
+    Central decision pipeline.
+
+    Strategy
+        ↓
+    Signal Scorer
+        ↓
+    Signal Filter
+    """
+
+    def __init__(self):
+
+        self.strategy = EMARSIStrategy()
+
+    def evaluate(self, df: pd.DataFrame) -> Decision:
+
+        raw_signal = self.strategy.generate_signal(df)
+
+        score, confidence, reasons = SignalScorer.score(df)
+
+        signal = SignalFilter.filter(
+            raw_signal,
+            score,
+        )
+
+        return Decision(
+            raw_signal=raw_signal,
+            signal=signal,
+            score=score,
+            confidence=confidence,
+            reasons=reasons,
+        )

@@ -2,6 +2,12 @@ import pandas as pd
 
 
 class RSI:
+    """
+    Relative Strength Index (RSI)
+
+    Uses Wilder's smoothing (RMA), which is compatible with
+    TradingView and most professional trading platforms.
+    """
 
     @staticmethod
     def calculate(
@@ -12,11 +18,19 @@ class RSI:
 
         delta = df[column].diff()
 
-        gain = delta.where(delta > 0, 0.0)
-        loss = -delta.where(delta < 0, 0.0)
+        gain = delta.clip(lower=0)
+        loss = -delta.clip(upper=0)
 
-        avg_gain = gain.rolling(window=period).mean()
-        avg_loss = loss.rolling(window=period).mean()
+        # Wilder's Moving Average (RMA)
+        avg_gain = gain.ewm(
+            alpha=1 / period,
+            adjust=False,
+        ).mean()
+
+        avg_loss = loss.ewm(
+            alpha=1 / period,
+            adjust=False,
+        ).mean()
 
         rs = avg_gain / avg_loss
 

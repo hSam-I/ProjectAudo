@@ -26,14 +26,22 @@ class Portfolio:
     def closed_trades(self):
 
         return len(
-            [trade for trade in self.trades if not trade.is_open]
+            [
+                trade
+                for trade in self.trades
+                if trade.status == "CLOSED"
+            ]
         )
 
     @property
     def open_trades(self):
 
         return len(
-            [trade for trade in self.trades if trade.is_open]
+            [
+                trade
+                for trade in self.trades
+                if trade.status == "OPEN"
+            ]
         )
 
     def trade_history(self):
@@ -45,8 +53,6 @@ class Portfolio:
 
         for i, trade in enumerate(self.trades, start=1):
 
-            status = "OPEN" if trade.is_open else "CLOSED"
-
             exit_price = (
                 "-"
                 if trade.exit_price is None
@@ -54,12 +60,15 @@ class Portfolio:
             )
 
             lines.append(
-                f"{i}. "
-                f"{trade.side} | "
-                f"Entry: {trade.entry_price:.2f} | "
-                f"Exit: {exit_price} | "
-                f"Profit: {trade.profit:.2f} | "
-                f"{status}"
-            )
+        f"{i}. "
+        f"{trade.side} | "
+        f"Entry: {trade.entry_price:.2f} | "
+        f"Exit: {exit_price} | "
+        f"Qty: {trade.quantity:.6f} | "
+        f"Risk: ${trade.risk_amount:.2f} | "
+        f"Profit: {trade.profit:.2f} | "
+        f"Reason: {trade.exit_reason or '-'} | "
+        f"{trade.status}"
+)
 
         return "\n".join(lines)
