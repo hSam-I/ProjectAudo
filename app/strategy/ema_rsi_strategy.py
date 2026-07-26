@@ -1,4 +1,7 @@
-class EMARSIStrategy:
+from app.strategy.base_strategy import BaseStrategy
+
+
+class EMARSIStrategy(BaseStrategy):
 
     def generate_signal(self, df):
 

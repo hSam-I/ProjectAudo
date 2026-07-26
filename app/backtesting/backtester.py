@@ -1,5 +1,6 @@
 from app.backtesting.portfolio import Portfolio
 from app.backtesting.trade import Trade
+from app.broker.paper_broker import PaperBroker
 from app.config.settings import settings
 from app.decision.decision_engine import DecisionEngine
 from app.risk.position_sizer import PositionSizer
@@ -19,6 +20,8 @@ class Backtester:
     def __init__(self):
 
         self.portfolio = Portfolio(settings.starting_balance)
+
+        self.broker = PaperBroker(self.portfolio)
 
         self.risk_manager = RiskManager()
 
@@ -60,7 +63,7 @@ class Backtester:
                         reason="STOP_LOSS",
                     )
 
-                    self.portfolio.close_trade(current_trade)
+                    self.broker.close(current_trade)
 
                     current_trade = None
 
@@ -74,7 +77,7 @@ class Backtester:
                         reason="TAKE_PROFIT",
                     )
 
-                    self.portfolio.close_trade(current_trade)
+                    self.broker.close(current_trade)
 
                     current_trade = None
 
@@ -123,7 +126,7 @@ class Backtester:
                     risk_amount=risk_amount,
                 )
 
-                self.portfolio.open_trade(current_trade)
+                self.broker.buy(current_trade)
 
             # ====================================================
             # SELL
@@ -137,7 +140,7 @@ class Backtester:
                     reason="SIGNAL",
                 )
 
-                self.portfolio.close_trade(current_trade)
+                self.broker.close(current_trade)
 
                 current_trade = None
 
