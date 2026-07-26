@@ -1,10 +1,17 @@
 from app.backtesting.backtester import Backtester
+from app.backtesting.performance import PerformanceAnalyzer
 from app.config.settings import settings
+from app.dashboard.dashboard import Dashboard
 from app.data.binance_provider import BinanceProvider
 from app.data.validator import DataValidator
 from app.decision.decision_engine import DecisionEngine
 from app.indicators.indicator_engine import IndicatorEngine
 from app.logging.logger import logger
+from app.reporting.drawdown_chart import DrawdownChart
+from app.reporting.equity_chart import EquityChart
+from app.reporting.equity_report import EquityReport
+from app.reporting.trade_distribution_chart import TradeDistributionChart
+from app.reporting.trade_journal import TradeJournal
 from app.risk.risk_manager import RiskManager
 
 
@@ -30,9 +37,7 @@ def main():
 
     df = IndicatorEngine.calculate_all(df)
 
-    decision_engine = DecisionEngine()
-
-    decision = decision_engine.evaluate(df)
+    decision = DecisionEngine().evaluate(df)
 
     last = df.iloc[-1]
 
@@ -42,19 +47,29 @@ def main():
 
     risk_amount = risk.risk_amount(balance)
 
-    stop_loss = risk.stop_loss(
-        last["close"],
-        last["atr"],
-    )
+    stop_loss = risk.stop_loss(last["close"], last["atr"])
 
-    take_profit = risk.take_profit(
-        last["close"],
-        last["atr"],
-    )
+    take_profit = risk.take_profit(last["close"], last["atr"])
 
-    backtester = Backtester()
+    portfolio = Backtester().run(df)
 
-    portfolio = backtester.run(df)
+    # ==========================
+    # REPORTS
+    # ==========================
+
+    TradeJournal().export(portfolio)
+
+    EquityReport().export(portfolio)
+
+    EquityChart().export(portfolio)
+
+    DrawdownChart().export(portfolio)
+
+    TradeDistributionChart().export(portfolio)
+
+    Dashboard().export(portfolio)
+
+    performance = PerformanceAnalyzer(portfolio)
 
     print()
     print("=" * 70)
@@ -98,6 +113,24 @@ def main():
     print(f"Closed Trades : {portfolio.closed_trades}")
     print(f"Open Trades   : {portfolio.open_trades}")
     print(f"Balance       : ${portfolio.balance:,.2f}")
+
+    print_separator()
+
+    print("Performance")
+
+    print(f"Win Rate      : {performance.win_rate():.2f}%")
+    print(f"Loss Rate     : {performance.loss_rate():.2f}%")
+    print(f"Average Win   : ${performance.average_win():,.2f}")
+    print(f"Average Loss  : -${abs(performance.average_loss()):,.2f}")
+    print(f"Largest Win   : ${performance.largest_win():,.2f}")
+    print(f"Largest Loss  : -${abs(performance.largest_loss()):,.2f}")
+    print(f"Gross Profit  : ${performance.gross_profit():,.2f}")
+    print(f"Gross Loss    : ${performance.gross_loss():,.2f}")
+    print(f"Profit Factor : {performance.profit_factor():.2f}")
+    print(f"Expectancy    : ${performance.expectancy():,.2f}")
+    print(f"Peak Equity   : ${performance.peak_equity():,.2f}")
+    print(f"Current Equity: ${portfolio.balance:,.2f}")
+    print(f"Max Drawdown  : {performance.max_drawdown():.2f}%")
 
     print_separator()
 

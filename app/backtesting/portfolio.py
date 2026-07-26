@@ -2,12 +2,22 @@ from app.backtesting.trade import Trade
 
 
 class Portfolio:
+    """
+    Stores trades and account balance.
+
+    Also keeps historical balance values
+    for performance analysis.
+    """
 
     def __init__(self, initial_balance: float):
 
         self.initial_balance = initial_balance
         self.balance = initial_balance
+
         self.trades: list[Trade] = []
+
+        # Equity Curve başlangıcı
+        self.balance_history = [initial_balance]
 
     def open_trade(self, trade: Trade):
 
@@ -16,6 +26,9 @@ class Portfolio:
     def close_trade(self, trade: Trade):
 
         self.balance += trade.profit
+
+        # Her kapanan işlemden sonra yeni bakiyeyi kaydet
+        self.balance_history.append(self.balance)
 
     @property
     def total_trades(self):
@@ -46,7 +59,7 @@ class Portfolio:
 
     def trade_history(self):
 
-        if len(self.trades) == 0:
+        if not self.trades:
             return "No trades."
 
         lines = []
@@ -60,15 +73,15 @@ class Portfolio:
             )
 
             lines.append(
-        f"{i}. "
-        f"{trade.side} | "
-        f"Entry: {trade.entry_price:.2f} | "
-        f"Exit: {exit_price} | "
-        f"Qty: {trade.quantity:.6f} | "
-        f"Risk: ${trade.risk_amount:.2f} | "
-        f"Profit: {trade.profit:.2f} | "
-        f"Reason: {trade.exit_reason or '-'} | "
-        f"{trade.status}"
-)
+                f"{i}. "
+                f"{trade.side} | "
+                f"Entry: {trade.entry_price:.2f} | "
+                f"Exit: {exit_price} | "
+                f"Qty: {trade.quantity:.6f} | "
+                f"Risk: ${trade.risk_amount:.2f} | "
+                f"Profit: {trade.profit:.2f} | "
+                f"Reason: {trade.exit_reason} | "
+                f"{trade.status}"
+            )
 
         return "\n".join(lines)
