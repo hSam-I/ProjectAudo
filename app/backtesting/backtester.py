@@ -5,6 +5,7 @@ from app.config.settings import settings
 from app.core.enums import OrderSide
 from app.core.enums import Signal
 from app.decision.decision_engine import DecisionEngine
+from app.risk.position_manager import PositionManager
 from app.risk.position_sizer import PositionSizer
 from app.risk.risk_manager import RiskManager
 from app.strategy.base_strategy import BaseStrategy
@@ -43,7 +44,9 @@ class Backtester:
 
             history = df.iloc[: i + 1]
 
-            decision = self.decision_engine.evaluate(history)
+            decision = self.decision_engine.evaluate(
+                history
+            )
 
             signal = decision.signal
 
@@ -51,17 +54,26 @@ class Backtester:
 
             current_high = execution_candle["high"]
             current_low = execution_candle["low"]
+            current_close = execution_candle["close"]
 
             entry_price = execution_candle["open"]
-            entry_time = str(execution_candle["timestamp"])
+            entry_time = str(
+                execution_candle["timestamp"]
+            )
 
             atr = history.iloc[-1]["atr"]
 
             # ====================================================
-            # OPEN POSITION MANAGEMENT
+            # POSITION MANAGEMENT
             # ====================================================
 
             if current_trade is not None:
+
+                PositionManager.update(
+                    trade=current_trade,
+                    current_price=current_close,
+                    atr=atr,
+                )
 
                 if current_low <= current_trade.stop_loss:
 
@@ -95,20 +107,29 @@ class Backtester:
             # BUY
             # ====================================================
 
-            if signal == Signal.BUY and current_trade is None:
+            if (
+                signal == Signal.BUY
+                and current_trade is None
+            ):
 
-                risk_amount = self.risk_manager.risk_amount(
-                    self.portfolio.balance
+                risk_amount = (
+                    self.risk_manager.risk_amount(
+                        self.portfolio.balance
+                    )
                 )
 
-                stop_loss = self.risk_manager.stop_loss(
-                    entry_price,
-                    atr,
+                stop_loss = (
+                    self.risk_manager.stop_loss(
+                        entry_price,
+                        atr,
+                    )
                 )
 
-                take_profit = self.risk_manager.take_profit(
-                    entry_price,
-                    atr,
+                take_profit = (
+                    self.risk_manager.take_profit(
+                        entry_price,
+                        atr,
+                    )
                 )
 
                 stop_loss_distance = (
@@ -117,10 +138,12 @@ class Backtester:
                     )
                 )
 
-                quantity = PositionSizer.calculate_position_size(
-                    balance=self.portfolio.balance,
-                    risk_amount=risk_amount,
-                    stop_loss_distance=stop_loss_distance,
+                quantity = (
+                    PositionSizer.calculate_position_size(
+                        balance=self.portfolio.balance,
+                        risk_amount=risk_amount,
+                        stop_loss_distance=stop_loss_distance,
+                    )
                 )
 
                 current_trade = Trade(
