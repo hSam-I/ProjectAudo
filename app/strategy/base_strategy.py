@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-import pandas as pd
+from app.core.enums import Signal
 
 
 class BaseStrategy(ABC):
@@ -8,12 +8,15 @@ class BaseStrategy(ABC):
     Base interface for all trading strategies.
     """
 
+    name = "base"
+
+    description = "Base trading strategy."
+
+    version = "1.0"
+
     @abstractmethod
-    def generate_signal(
-        self,
-        df: pd.DataFrame,
-    ) -> str:
+    def generate_signal(self, df) -> Signal:
         """
-        Returns BUY, SELL or HOLD.
+        Returns BUY / SELL / HOLD.
         """
         raise NotImplementedError

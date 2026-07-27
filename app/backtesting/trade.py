@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from app.core.enums import OrderSide
+
 
 @dataclass
 class Trade:
@@ -12,7 +14,8 @@ class Trade:
     """
 
     symbol: str
-    side: str
+
+    side: OrderSide
 
     entry_price: float
     quantity: float
@@ -45,7 +48,7 @@ class Trade:
 
         self.exit_reason = reason
 
-        if self.side == "BUY":
+        if self.side == OrderSide.BUY:
 
             self.profit = (
                 exit_price - self.entry_price

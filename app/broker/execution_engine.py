@@ -2,6 +2,7 @@ from app.backtesting.portfolio import Portfolio
 from app.backtesting.trade import Trade
 from app.broker.fee_model import FeeModel
 from app.broker.slippage_model import SlippageModel
+from app.core.enums import OrderType
 from app.execution.order import Order
 from app.execution.order_book import OrderBook
 
@@ -39,7 +40,7 @@ class ExecutionEngine:
         order = Order(
             symbol=trade.symbol,
             side=trade.side,
-            order_type="MARKET",
+            order_type=OrderType.MARKET,
             quantity=trade.quantity,
             price=trade.entry_price,
             timestamp=trade.entry_time,

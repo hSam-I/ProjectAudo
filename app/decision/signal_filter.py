@@ -1,23 +1,33 @@
+from app.core.enums import Signal
+
+
 class SignalFilter:
     """
     Filters strategy signals using the confidence score.
-
-    Strategy generates the candidate signal.
-    SignalScorer evaluates its quality.
-    SignalFilter decides whether the signal
-    is strong enough to execute.
     """
 
     BUY_THRESHOLD = 60
     SELL_THRESHOLD = 60
 
     @classmethod
-    def filter(cls, signal: str, score: int) -> str:
+    def filter(
+        cls,
+        signal: Signal,
+        score: int,
+    ) -> Signal:
 
-        if signal == "BUY":
-            return "BUY" if score >= cls.BUY_THRESHOLD else "HOLD"
+        if signal == Signal.BUY:
+            return (
+                Signal.BUY
+                if score >= cls.BUY_THRESHOLD
+                else Signal.HOLD
+            )
 
-        if signal == "SELL":
-            return "SELL" if score >= cls.SELL_THRESHOLD else "HOLD"
+        if signal == Signal.SELL:
+            return (
+                Signal.SELL
+                if score >= cls.SELL_THRESHOLD
+                else Signal.HOLD
+            )
 
-        return "HOLD"
+        return Signal.HOLD

@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from app.core.enums import OrderStatus
+from app.core.enums import OrderType
+
 
 @dataclass
 class Order:
@@ -12,7 +15,7 @@ class Order:
 
     side: str
 
-    order_type: str
+    order_type: OrderType
 
     quantity: float
 
@@ -20,7 +23,7 @@ class Order:
 
     timestamp: str
 
-    status: str = "NEW"
+    status: OrderStatus = OrderStatus.NEW
 
     order_id: Optional[int] = None
 
@@ -30,11 +33,11 @@ class Order:
 
     def is_market(self):
 
-        return self.order_type == "MARKET"
+        return self.order_type == OrderType.MARKET
 
     def is_limit(self):
 
-        return self.order_type == "LIMIT"
+        return self.order_type == OrderType.LIMIT
 
     def can_fill(self, market_price: float):
 
@@ -56,12 +59,12 @@ class Order:
 
         self.filled_time = timestamp
 
-        self.status = "FILLED"
+        self.status = OrderStatus.FILLED
 
     def cancel(self):
 
-        self.status = "CANCELLED"
+        self.status = OrderStatus.CANCELLED
 
     def reject(self):
 
-        self.status = "REJECTED"
+        self.status = OrderStatus.REJECTED

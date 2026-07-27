@@ -1,13 +1,22 @@
+from app.core.enums import Signal
 from app.strategy.base_strategy import BaseStrategy
 
 
 class EMARSIStrategy(BaseStrategy):
+    """
+    EMA20 / EMA50 crossover strategy confirmed by RSI.
+    """
 
-    def generate_signal(self, df):
+    name = "ema_rsi"
 
-        # En az iki mum gerekli
+    description = "EMA crossover confirmed by RSI."
+
+    version = "1.0"
+
+    def generate_signal(self, df) -> Signal:
+
         if len(df) < 2:
-            return "HOLD"
+            return Signal.HOLD
 
         previous = df.iloc[-2]
         current = df.iloc[-1]
@@ -20,20 +29,18 @@ class EMARSIStrategy(BaseStrategy):
 
         rsi = current["rsi"]
 
-        # EMA20 aşağıdan yukarı geçti
         if (
             prev_ema20 <= prev_ema50
             and ema20 > ema50
             and rsi < 70
         ):
-            return "BUY"
+            return Signal.BUY
 
-        # EMA20 yukarıdan aşağı geçti
         if (
             prev_ema20 >= prev_ema50
             and ema20 < ema50
             and rsi > 30
         ):
-            return "SELL"
+            return Signal.SELL
 
-        return "HOLD"
+        return Signal.HOLD

@@ -1,3 +1,4 @@
+from app.core.enums import OrderStatus
 from app.execution.order import Order
 
 
@@ -12,7 +13,10 @@ class OrderBook:
 
         self.next_order_id = 1
 
-    def add(self, order: Order):
+    def add(
+        self,
+        order: Order,
+    ):
 
         order.order_id = self.next_order_id
 
@@ -22,7 +26,10 @@ class OrderBook:
 
         return order
 
-    def get(self, order_id: int):
+    def get(
+        self,
+        order_id: int,
+    ):
 
         for order in self.orders:
 
@@ -32,18 +39,18 @@ class OrderBook:
 
         return None
 
-    def pending(self):
+    def pending(self) -> list[Order]:
 
         return [
             order
             for order in self.orders
-            if order.status == "NEW"
+            if order.status == OrderStatus.NEW
         ]
 
-    def all(self):
+    def all(self) -> list[Order]:
 
         return self.orders
 
-    def count(self):
+    def count(self) -> int:
 
         return len(self.orders)

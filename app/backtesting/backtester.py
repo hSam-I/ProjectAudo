@@ -2,9 +2,12 @@ from app.backtesting.portfolio import Portfolio
 from app.backtesting.trade import Trade
 from app.broker.paper_broker import PaperBroker
 from app.config.settings import settings
+from app.core.enums import OrderSide
+from app.core.enums import Signal
 from app.decision.decision_engine import DecisionEngine
 from app.risk.position_sizer import PositionSizer
 from app.risk.risk_manager import RiskManager
+from app.strategy.base_strategy import BaseStrategy
 
 
 class Backtester:
@@ -17,7 +20,10 @@ class Backtester:
     This avoids look-ahead bias.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        strategy: BaseStrategy | None = None,
+    ):
 
         self.portfolio = Portfolio(settings.starting_balance)
 
@@ -25,7 +31,9 @@ class Backtester:
 
         self.risk_manager = RiskManager()
 
-        self.decision_engine = DecisionEngine()
+        self.decision_engine = DecisionEngine(
+            strategy=strategy,
+        )
 
     def run(self, df):
 
@@ -87,7 +95,7 @@ class Backtester:
             # BUY
             # ====================================================
 
-            if signal == "BUY" and current_trade is None:
+            if signal == Signal.BUY and current_trade is None:
 
                 risk_amount = self.risk_manager.risk_amount(
                     self.portfolio.balance
@@ -117,7 +125,7 @@ class Backtester:
 
                 current_trade = Trade(
                     symbol=settings.symbol,
-                    side="BUY",
+                    side=OrderSide.BUY,
                     entry_price=entry_price,
                     quantity=quantity,
                     entry_time=entry_time,
@@ -132,7 +140,10 @@ class Backtester:
             # SELL
             # ====================================================
 
-            elif signal == "SELL" and current_trade is not None:
+            elif (
+                signal == Signal.SELL
+                and current_trade is not None
+            ):
 
                 current_trade.close(
                     exit_price=entry_price,

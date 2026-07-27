@@ -9,24 +9,32 @@ class RiskManager:
 
     def __init__(self):
 
-        self.risk_percent = settings.risk_percent / 100
+        self.risk_per_trade = settings.risk_per_trade
 
     def risk_amount(self, balance: float) -> float:
-        """Maximum dollar amount to risk."""
+        """
+        Maximum dollar amount to risk.
+        """
 
-        return balance * self.risk_percent
+        return balance * self.risk_per_trade
 
     def stop_loss_distance(self, atr: float) -> float:
-        """Distance between entry and stop-loss."""
+        """
+        Distance between entry and stop-loss.
+        """
 
         return atr * 2
 
     def stop_loss(self, entry_price: float, atr: float) -> float:
-        """Stop-loss price."""
+        """
+        Stop-loss price.
+        """
 
         return entry_price - self.stop_loss_distance(atr)
 
     def take_profit(self, entry_price: float, atr: float) -> float:
-        """Take-profit price."""
+        """
+        Take-profit price.
+        """
 
         return entry_price + (self.stop_loss_distance(atr) * 2)
