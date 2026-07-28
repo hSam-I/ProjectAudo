@@ -5,6 +5,7 @@ from app.config.settings import settings
 from app.core.enums import OrderSide
 from app.core.enums import Signal
 from app.decision.decision_engine import DecisionEngine
+from app.risk.portfolio_risk_manager import PortfolioRiskManager
 from app.risk.position_manager import PositionManager
 from app.risk.position_sizer import PositionSizer
 from app.risk.risk_manager import RiskManager
@@ -26,9 +27,13 @@ class Backtester:
         strategy: BaseStrategy | None = None,
     ):
 
-        self.portfolio = Portfolio(settings.starting_balance)
+        self.portfolio = Portfolio(
+            settings.starting_balance
+        )
 
-        self.broker = PaperBroker(self.portfolio)
+        self.broker = PaperBroker(
+            self.portfolio
+        )
 
         self.risk_manager = RiskManager()
 
@@ -40,7 +45,10 @@ class Backtester:
 
         current_trade = None
 
-        for i in range(50, len(df) - 1):
+        for i in range(
+            settings.warmup_candles,
+            len(df) - 1,
+        ):
 
             history = df.iloc[: i + 1]
 
@@ -57,15 +65,16 @@ class Backtester:
             current_close = execution_candle["close"]
 
             entry_price = execution_candle["open"]
+
             entry_time = str(
                 execution_candle["timestamp"]
             )
 
             atr = history.iloc[-1]["atr"]
 
-            # ====================================================
+            # ==========================================
             # POSITION MANAGEMENT
-            # ====================================================
+            # ==========================================
 
             if current_trade is not None:
 
@@ -83,7 +92,9 @@ class Backtester:
                         reason="STOP_LOSS",
                     )
 
-                    self.broker.close(current_trade)
+                    self.broker.close(
+                        current_trade
+                    )
 
                     current_trade = None
 
@@ -97,19 +108,24 @@ class Backtester:
                         reason="TAKE_PROFIT",
                     )
 
-                    self.broker.close(current_trade)
+                    self.broker.close(
+                        current_trade
+                    )
 
                     current_trade = None
 
                     continue
 
-            # ====================================================
+            # ==========================================
             # BUY
-            # ====================================================
+            # ==========================================
 
             if (
                 signal == Signal.BUY
                 and current_trade is None
+                and PortfolioRiskManager.can_open_position(
+                    self.portfolio
+                )
             ):
 
                 risk_amount = (
@@ -117,6 +133,12 @@ class Backtester:
                         self.portfolio.balance
                     )
                 )
+
+                if not PortfolioRiskManager.can_take_risk(
+                    self.portfolio,
+                    risk_amount,
+                ):
+                    continue
 
                 stop_loss = (
                     self.risk_manager.stop_loss(
@@ -157,11 +179,13 @@ class Backtester:
                     risk_amount=risk_amount,
                 )
 
-                self.broker.buy(current_trade)
-
-            # ====================================================
+                self.broker.buy(
+                    current_trade
+                )
+                
+            # ==========================================
             # SELL
-            # ====================================================
+            # ==========================================
 
             elif (
                 signal == Signal.SELL
@@ -174,7 +198,9 @@ class Backtester:
                     reason="SIGNAL",
                 )
 
-                self.broker.close(current_trade)
+                self.broker.close(
+                    current_trade
+                )
 
                 current_trade = None
 

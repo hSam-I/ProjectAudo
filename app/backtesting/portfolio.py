@@ -3,10 +3,14 @@ from app.backtesting.trade import Trade
 
 class Portfolio:
     """
-    Stores trades and account balance.
+    Represents the trading account.
 
-    Also keeps historical balance values
-    for performance analysis.
+    Responsible for:
+
+    - Balance
+    - Open positions
+    - Closed trades
+    - Equity history
     """
 
     def __init__(self, initial_balance: float):
@@ -14,50 +18,68 @@ class Portfolio:
         self.initial_balance = initial_balance
         self.balance = initial_balance
 
+        # Every trade ever created
         self.trades: list[Trade] = []
 
+        # Currently open positions
+        self.open_positions: list[Trade] = []
+
+        # Closed trades
         self.closed_trades: list[Trade] = []
 
+        # Equity Curve
         self.balance_history = [initial_balance]
 
-    def open_trade(self, trade: Trade):
+    # --------------------------------------------------
+    # OPEN POSITION
+    # --------------------------------------------------
+
+    def open_trade(self, trade: Trade) -> None:
 
         self.trades.append(trade)
 
-    def close_trade(self, trade: Trade):
+        self.open_positions.append(trade)
+
+    # --------------------------------------------------
+    # CLOSE POSITION
+    # --------------------------------------------------
+
+    def close_trade(self, trade: Trade) -> None:
 
         self.balance += trade.profit
+
+        if trade in self.open_positions:
+            self.open_positions.remove(trade)
 
         if trade not in self.closed_trades:
             self.closed_trades.append(trade)
 
         self.balance_history.append(self.balance)
 
+    # --------------------------------------------------
+    # STATISTICS
+    # --------------------------------------------------
+
     @property
-    def total_trades(self):
+    def total_trades(self) -> int:
 
         return len(self.trades)
 
     @property
-    def closed_trades_count(self):
+    def open_trades(self) -> int:
+
+        return len(self.open_positions)
+
+    @property
+    def closed_trades_count(self) -> int:
 
         return len(self.closed_trades)
 
-    @property
-    def open_trades(self):
+    # --------------------------------------------------
+    # HISTORY
+    # --------------------------------------------------
 
-        return [
-            trade
-            for trade in self.trades
-            if trade.status == "OPEN"
-        ]
-
-    @property
-    def open_trades_count(self):
-
-        return len(self.open_trades)
-
-    def trade_history(self):
+    def trade_history(self) -> str:
 
         if not self.trades:
             return "No trades."
@@ -74,10 +96,12 @@ class Portfolio:
 
             lines.append(
                 f"{i}. "
+                f"{trade.symbol} | "
                 f"{trade.side} | "
                 f"Entry: {trade.entry_price:.2f} | "
                 f"Exit: {exit_price} | "
                 f"Qty: {trade.quantity:.6f} | "
+                f"Remaining: {trade.remaining_quantity:.6f} | "
                 f"Risk: ${trade.risk_amount:.2f} | "
                 f"Profit: {trade.profit:.2f} | "
                 f"Reason: {trade.exit_reason} | "

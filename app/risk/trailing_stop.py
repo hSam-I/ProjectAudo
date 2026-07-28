@@ -1,10 +1,6 @@
 class TrailingStop:
     """
-    Updates the stop-loss as price moves
-    in favor of the trade.
-
-    The stop-loss only moves forward.
-    It never moves backward.
+    ATR based trailing stop.
     """
 
     @staticmethod
@@ -15,6 +11,12 @@ class TrailingStop:
         multiplier: float = 2.0,
     ) -> float:
 
-        candidate_stop = current_price - (atr * multiplier)
+        candidate_stop = (
+            current_price
+            - atr * multiplier
+        )
 
-        return max(current_stop, candidate_stop)
+        return max(
+            current_stop,
+            candidate_stop,
+        )

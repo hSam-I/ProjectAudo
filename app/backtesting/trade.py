@@ -8,9 +8,6 @@ from app.core.enums import OrderSide
 class Trade:
     """
     Represents a single trade.
-
-    The same model is intended to be used by both
-    the Backtester and the future Live Execution Engine.
     """
 
     symbol: str
@@ -34,6 +31,14 @@ class Trade:
 
     exit_reason: Optional[str] = None
 
+    # NEW
+    partial_tp_taken: bool = False
+    remaining_quantity: float = 0.0
+
+    def __post_init__(self):
+
+        self.remaining_quantity = self.quantity
+
     def close(
         self,
         exit_price: float,
@@ -52,10 +57,10 @@ class Trade:
 
             self.profit = (
                 exit_price - self.entry_price
-            ) * self.quantity
+            ) * self.remaining_quantity
 
         else:
 
             self.profit = (
                 self.entry_price - exit_price
-            ) * self.quantity
+            ) * self.remaining_quantity
