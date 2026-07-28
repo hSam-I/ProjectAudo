@@ -40,4 +40,4 @@ def test_execution_engine():
 
     engine.execute_sell(trade)
 
-    assert portfolio.closed_trades == 1
+    assert portfolio.closed_trades_count == 1

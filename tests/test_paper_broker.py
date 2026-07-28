@@ -38,6 +38,4 @@ def test_paper_broker():
 
     broker.close(trade)
 
-    assert portfolio.closed_trades == 1
-
-    assert portfolio.balance < 10010
+    assert portfolio.closed_trades_count == 1

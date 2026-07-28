@@ -16,7 +16,8 @@ class Portfolio:
 
         self.trades: list[Trade] = []
 
-        # Equity Curve başlangıcı
+        self.closed_trades: list[Trade] = []
+
         self.balance_history = [initial_balance]
 
     def open_trade(self, trade: Trade):
@@ -27,7 +28,9 @@ class Portfolio:
 
         self.balance += trade.profit
 
-        # Her kapanan işlemden sonra yeni bakiyeyi kaydet
+        if trade not in self.closed_trades:
+            self.closed_trades.append(trade)
+
         self.balance_history.append(self.balance)
 
     @property
@@ -36,26 +39,23 @@ class Portfolio:
         return len(self.trades)
 
     @property
-    def closed_trades(self):
+    def closed_trades_count(self):
 
-        return len(
-            [
-                trade
-                for trade in self.trades
-                if trade.status == "CLOSED"
-            ]
-        )
+        return len(self.closed_trades)
 
     @property
     def open_trades(self):
 
-        return len(
-            [
-                trade
-                for trade in self.trades
-                if trade.status == "OPEN"
-            ]
-        )
+        return [
+            trade
+            for trade in self.trades
+            if trade.status == "OPEN"
+        ]
+
+    @property
+    def open_trades_count(self):
+
+        return len(self.open_trades)
 
     def trade_history(self):
 
