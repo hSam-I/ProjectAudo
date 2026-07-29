@@ -1,13 +1,15 @@
+import pandas as pd
+
 from app.ai.features import FeatureExtractor
 
 
 class MarketScore:
     """
-    Produces a simple market score.
+    Calculates a simple AI market quality score.
     """
 
     @staticmethod
-    def calculate(df) -> float:
+    def calculate(df: pd.DataFrame) -> int:
 
         features = FeatureExtractor.extract(df)
 
@@ -16,7 +18,10 @@ class MarketScore:
         if features["ema20"] > features["ema50"]:
             score += 1
 
-        if features["rsi"] > 55:
+        if 45 <= features["rsi"] <= 65:
+            score += 1
+
+        if features["macd_histogram"] > 0:
             score += 1
 
         if features["atr"] > 0:

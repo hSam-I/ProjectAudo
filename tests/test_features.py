@@ -13,6 +13,9 @@ def test_feature_extractor():
                 "ema_50": 95,
                 "rsi": 55,
                 "atr": 2,
+                "macd": 1.2,
+                "macd_signal": 1.0,
+                "macd_histogram": 0.2,
             }
         ]
     )
@@ -24,3 +27,6 @@ def test_feature_extractor():
     assert features["ema50"] == 95
     assert features["rsi"] == 55
     assert features["atr"] == 2
+    assert features["macd"] == 1.2
+    assert features["macd_signal"] == 1.0
+    assert features["macd_histogram"] == 0.2

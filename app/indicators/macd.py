@@ -1,16 +1,36 @@
 import pandas as pd
 
 
-class MACD:
+def calculate_macd(
+    df: pd.DataFrame,
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+) -> pd.DataFrame:
+    """
+    Calculates MACD, Signal and Histogram.
+    """
 
-    @staticmethod
-    def calculate(df: pd.DataFrame, column: str = "close") -> pd.DataFrame:
+    ema_fast = df["close"].ewm(
+        span=fast,
+        adjust=False,
+    ).mean()
 
-        ema12 = df[column].ewm(span=12, adjust=False).mean()
-        ema26 = df[column].ewm(span=26, adjust=False).mean()
+    ema_slow = df["close"].ewm(
+        span=slow,
+        adjust=False,
+    ).mean()
 
-        df["macd"] = ema12 - ema26
-        df["macd_signal"] = df["macd"].ewm(span=9, adjust=False).mean()
-        df["macd_histogram"] = df["macd"] - df["macd_signal"]
+    df["macd"] = ema_fast - ema_slow
 
-        return df
+    df["macd_signal"] = (
+        df["macd"]
+        .ewm(span=signal, adjust=False)
+        .mean()
+    )
+
+    df["macd_histogram"] = (
+        df["macd"] - df["macd_signal"]
+    )
+
+    return df

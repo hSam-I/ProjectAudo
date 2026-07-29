@@ -1,30 +1,20 @@
-from app.ai.market_regime import (
-    MarketRegime,
-    MarketRegimeDetector,
-)
+from app.ai.market_regime import MarketRegime
 
 
 class StrategySelector:
-    """
-    Chooses the best strategy
-    according to the market regime.
-    """
 
-    def __init__(self):
+    @staticmethod
+    def choose(df):
 
-        self.detector = MarketRegimeDetector()
+        regime = MarketRegime.detect(df)
 
-    def select(self, df) -> str:
+        if regime == "TREND":
+            return "trend_following"
 
-        regime = self.detector.detect(df)
+        if regime == "RANGE":
+            return "mean_reversion"
 
-        if regime == MarketRegime.TRENDING:
-            return "ema_rsi"
-
-        if regime == MarketRegime.RANGING:
-            return "bollinger"
-
-        if regime == MarketRegime.VOLATILE:
+        if regime == "BREAKOUT":
             return "breakout"
 
         return "ema_rsi"

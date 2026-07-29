@@ -1,14 +1,6 @@
 import pandas as pd
 
-from app.core.enums import Signal
 from app.decision.ai_decision_engine import AIDecisionEngine
-from app.strategy.base_strategy import BaseStrategy
-
-
-class DummyStrategy(BaseStrategy):
-
-    def generate_signal(self, df):
-        return Signal.BUY
 
 
 def test_ai_decision_engine():
@@ -21,14 +13,14 @@ def test_ai_decision_engine():
                 "ema_50": 100,
                 "rsi": 60,
                 "atr": 2,
-                "macd_histogram": 1,
+                "macd": 1.5,
+                "macd_signal": 1.2,
+                "macd_histogram": 0.3,
             }
         ]
     )
 
-    engine = AIDecisionEngine(
-        strategy=DummyStrategy()
-    )
+    engine = AIDecisionEngine()
 
     decision = engine.evaluate(
         df=df,
@@ -36,3 +28,5 @@ def test_ai_decision_engine():
     )
 
     assert decision is not None
+    assert decision.signal is not None
+    assert decision.risk > 0

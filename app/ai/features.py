@@ -17,4 +17,7 @@ class FeatureExtractor:
             "ema50": float(last["ema_50"]),
             "rsi": float(last["rsi"]),
             "atr": float(last["atr"]),
+            "macd": float(last["macd"]),
+            "macd_signal": float(last["macd_signal"]),
+            "macd_histogram": float(last["macd_histogram"]),
         }
