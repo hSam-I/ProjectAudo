@@ -1,12 +1,8 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """
-    Global application settings.
-
-    Values can be overridden using the .env file.
-    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -14,41 +10,33 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ==================================================
-    # GENERAL
-    # ==================================================
+    starting_balance: float = 10000
 
-    starting_balance: float = 10000.0
+    risk_per_trade: float = 0.01
 
-    symbol: str = "BTC/USDT"
+    symbols: list[str] = [
+        "BTC/USDT",
+    ]
 
     timeframe: str = "1h"
 
     strategy: str = "ema_rsi"
 
-    # ==================================================
-    # RISK MANAGEMENT
-    # ==================================================
-
-    risk_per_trade: float = 0.01
+    warmup_candles: int = 50
 
     max_open_positions: int = 5
 
-    max_portfolio_risk: float = 0.05
+    @field_validator("symbols", mode="before")
+    @classmethod
+    def parse_symbols(cls, value):
 
-    # ==================================================
-    # BROKER
-    # ==================================================
+        if isinstance(value, str):
+            return [
+                symbol.strip()
+                for symbol in value.split(",")
+            ]
 
-    fee_rate: float = 0.001
-
-    slippage_rate: float = 0.0005
-
-    # ==================================================
-    # BACKTEST
-    # ==================================================
-
-    warmup_candles: int = 50
+        return value
 
 
 settings = Settings()
