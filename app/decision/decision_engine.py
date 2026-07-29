@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from app.ai.strategy_selector import StrategySelector
 from app.config.settings import settings
 from app.core.enums import Signal
 from app.decision.signal_filter import SignalFilter
@@ -29,6 +30,10 @@ class DecisionEngine:
     """
     Central decision pipeline.
 
+    Market Regime
+        ↓
+    Strategy Selector
+        ↓
     Strategy
         ↓
     Signal Scorer
@@ -50,9 +55,12 @@ class DecisionEngine:
         df: pd.DataFrame,
     ) -> Decision:
 
-        raw_signal = self.strategy.generate_signal(
-            df
-        )
+        # Automatically choose the best strategy
+        strategy_name = StrategySelector.choose(df)
+
+        self.strategy = get_strategy(strategy_name)
+
+        raw_signal = self.strategy.generate_signal(df)
 
         score, confidence, reasons = SignalScorer.score(
             df
