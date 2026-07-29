@@ -149,6 +149,10 @@ class PerformanceAnalyzer:
 
             peak = max(peak, balance)
 
+            if peak == 0:
+                drawdowns.append(0)
+                continue
+
             drawdown = (
                 (balance - peak)
                 / peak
