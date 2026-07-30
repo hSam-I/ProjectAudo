@@ -23,11 +23,19 @@ def test_indicator_engine():
 
     assert "ema_fast" in result.columns
     assert "ema_slow" in result.columns
+
     assert "rsi" in result.columns
+
     assert "atr" in result.columns
+
     assert "macd" in result.columns
     assert "macd_signal" in result.columns
     assert "macd_histogram" in result.columns
+
     assert "adx" in result.columns
+
+    assert "bb_upper" in result.columns
+    assert "bb_middle" in result.columns
+    assert "bb_lower" in result.columns
 
     assert len(result) == 100
