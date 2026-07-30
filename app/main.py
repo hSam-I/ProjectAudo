@@ -1,7 +1,6 @@
 from app.backtesting.backtester import Backtester
 from app.backtesting.performance import PerformanceAnalyzer
 from app.config.settings import settings
-from app.dashboard.dashboard import Dashboard
 from app.data.binance_provider import BinanceProvider
 from app.data.validator import DataValidator
 from app.decision.decision_engine import DecisionEngine
@@ -67,7 +66,6 @@ def main():
 
     TradeDistributionChart().export(portfolio)
 
-    Dashboard().export(portfolio)
 
     performance = PerformanceAnalyzer(portfolio)
 

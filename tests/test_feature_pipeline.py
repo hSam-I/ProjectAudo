@@ -17,7 +17,12 @@ def test_feature_pipeline():
         }
     )
 
-    result = FeaturePipeline.build(df)
+    df = FeaturePipeline.build(df)
 
-    assert "ema_fast" in result.columns
-    assert "ema_slow" in result.columns
+    assert "ema_fast" in df.columns
+    assert "ema_slow" in df.columns
+    assert "rsi" in df.columns
+    assert "atr" in df.columns
+    assert "macd" in df.columns
+    assert "macd_signal" in df.columns
+    assert "macd_histogram" in df.columns
