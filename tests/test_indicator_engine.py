@@ -40,4 +40,6 @@ def test_indicator_engine():
 
     assert "vwap" in result.columns
 
+    assert "obv" in result.columns
+
     assert len(result) == 100

@@ -5,6 +5,7 @@ from app.indicators.atr import ATR
 from app.indicators.bollinger import BollingerBands
 from app.indicators.ema import EMA
 from app.indicators.macd import MACD
+from app.indicators.obv import OBV
 from app.indicators.rsi import RSI
 from app.indicators.vwap import VWAP
 
@@ -96,5 +97,11 @@ class IndicatorEngine:
         # ==========================
 
         df = VWAP.calculate(df)
+
+        # ==========================
+        # OBV
+        # ==========================
+
+        df = OBV.calculate(df)
 
         return df
