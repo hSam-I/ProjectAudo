@@ -1,21 +1,35 @@
+import pandas as pd
+
 from app.indicators.ema import EMA
-from app.indicators.rsi import RSI
-from app.indicators.macd import MACD
-from app.indicators.atr import ATR
 
 
 class IndicatorEngine:
+    """
+    Builds indicators required
+    by a strategy.
+    """
 
     @staticmethod
-    def calculate_all(df):
+    def prepare(
+        df: pd.DataFrame,
+        ema_fast: int = 20,
+        ema_slow: int = 50,
+    ) -> pd.DataFrame:
 
-        df = EMA.calculate(df, 20)
-        df = EMA.calculate(df, 50)
+        df = df.copy()
 
-        df = RSI.calculate(df)
+        df = EMA.calculate(
+            df=df,
+            period=ema_fast,
+        )
 
-        df = MACD.calculate(df)
+        df = EMA.calculate(
+            df=df,
+            period=ema_slow,
+        )
 
-        df = ATR.calculate(df)
+        df["ema_fast"] = df[f"ema_{ema_fast}"]
+
+        df["ema_slow"] = df[f"ema_{ema_slow}"]
 
         return df

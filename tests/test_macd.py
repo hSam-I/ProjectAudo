@@ -1,6 +1,6 @@
 import pandas as pd
 
-from app.indicators.macd import calculate_macd
+from app.indicators.macd import MACD
 
 
 def test_macd():
@@ -11,7 +11,7 @@ def test_macd():
         }
     )
 
-    df = calculate_macd(df)
+    df = MACD.calculate(df)
 
     assert "macd" in df.columns
     assert "macd_signal" in df.columns

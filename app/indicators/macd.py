@@ -1,36 +1,43 @@
 import pandas as pd
 
 
-def calculate_macd(
-    df: pd.DataFrame,
-    fast: int = 12,
-    slow: int = 26,
-    signal: int = 9,
-) -> pd.DataFrame:
+class MACD:
     """
-    Calculates MACD, Signal and Histogram.
+    Moving Average Convergence Divergence.
     """
 
-    ema_fast = df["close"].ewm(
-        span=fast,
-        adjust=False,
-    ).mean()
+    @staticmethod
+    def calculate(
+        df: pd.DataFrame,
+        fast: int = 12,
+        slow: int = 26,
+        signal: int = 9,
+    ) -> pd.DataFrame:
 
-    ema_slow = df["close"].ewm(
-        span=slow,
-        adjust=False,
-    ).mean()
+        ema_fast = df["close"].ewm(
+            span=fast,
+            adjust=False,
+        ).mean()
 
-    df["macd"] = ema_fast - ema_slow
+        ema_slow = df["close"].ewm(
+            span=slow,
+            adjust=False,
+        ).mean()
 
-    df["macd_signal"] = (
-        df["macd"]
-        .ewm(span=signal, adjust=False)
-        .mean()
-    )
+        df["macd"] = ema_fast - ema_slow
 
-    df["macd_histogram"] = (
-        df["macd"] - df["macd_signal"]
-    )
+        df["macd_signal"] = (
+            df["macd"]
+            .ewm(
+                span=signal,
+                adjust=False,
+            )
+            .mean()
+        )
 
-    return df
+        df["macd_histogram"] = (
+            df["macd"]
+            - df["macd_signal"]
+        )
+
+        return df
