@@ -3,6 +3,7 @@ import pandas as pd
 from app.indicators.adx import ADX
 from app.indicators.atr import ATR
 from app.indicators.bollinger import BollingerBands
+from app.indicators.cci import CCI
 from app.indicators.ema import EMA
 from app.indicators.macd import MACD
 from app.indicators.obv import OBV
@@ -13,10 +14,11 @@ from app.indicators.vwap import VWAP
 
 class IndicatorEngine:
     """
-    Central indicator engine.
+    Central Indicator Engine.
 
-    Calculates every indicator required by
-    strategies, AI modules and backtesting.
+    Responsible for calculating all technical indicators
+    required by strategies, AI modules, optimizers,
+    backtesting and reporting.
     """
 
     @staticmethod
@@ -31,6 +33,7 @@ class IndicatorEngine:
         bb_std: float = 2.0,
         stochastic_period: int = 14,
         stochastic_smooth: int = 3,
+        cci_period: int = 20,
     ) -> pd.DataFrame:
 
         df = df.copy()
@@ -108,6 +111,15 @@ class IndicatorEngine:
         df = OBV.calculate(df)
 
         # ==================================================
+        # CCI
+        # ==================================================
+
+        df = CCI.calculate(
+            df=df,
+            period=cci_period,
+        )
+
+        # ==================================================
         # Stochastic Oscillator
         # ==================================================
 
@@ -124,11 +136,13 @@ class IndicatorEngine:
         df: pd.DataFrame,
     ) -> pd.DataFrame:
         """
-        Compatibility wrapper.
+        Backward compatibility.
 
-        Existing code that calls
-        IndicatorEngine.calculate_all()
-        will continue to work.
+        Existing code can continue calling:
+
+            IndicatorEngine.calculate_all(df)
+
+        without any modification.
         """
 
         return IndicatorEngine.prepare(df)

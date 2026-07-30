@@ -42,6 +42,8 @@ def test_indicator_engine():
 
     assert "obv" in result.columns
 
+    assert "cci" in result.columns
+
     assert "stoch_k" in result.columns
     assert "stoch_d" in result.columns
 
