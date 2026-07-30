@@ -44,6 +44,12 @@ def test_indicator_engine():
 
     assert "cci" in result.columns
 
+    assert "tenkan_sen" in result.columns
+    assert "kijun_sen" in result.columns
+    assert "senkou_span_a" in result.columns
+    assert "senkou_span_b" in result.columns
+    assert "chikou_span" in result.columns
+
     assert "stoch_k" in result.columns
     assert "stoch_d" in result.columns
 

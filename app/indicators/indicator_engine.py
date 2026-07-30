@@ -5,6 +5,7 @@ from app.indicators.atr import ATR
 from app.indicators.bollinger import BollingerBands
 from app.indicators.cci import CCI
 from app.indicators.ema import EMA
+from app.indicators.ichimoku import Ichimoku
 from app.indicators.macd import MACD
 from app.indicators.obv import OBV
 from app.indicators.rsi import RSI
@@ -16,9 +17,13 @@ class IndicatorEngine:
     """
     Central Indicator Engine.
 
-    Responsible for calculating all technical indicators
-    required by strategies, AI modules, optimizers,
-    backtesting and reporting.
+    Calculates every technical indicator used by
+
+    - Strategies
+    - AI
+    - Optimizer
+    - Backtesting
+    - Reporting
     """
 
     @staticmethod
@@ -120,6 +125,12 @@ class IndicatorEngine:
         )
 
         # ==================================================
+        # Ichimoku Cloud
+        # ==================================================
+
+        df = Ichimoku.calculate(df)
+
+        # ==================================================
         # Stochastic Oscillator
         # ==================================================
 
@@ -136,13 +147,7 @@ class IndicatorEngine:
         df: pd.DataFrame,
     ) -> pd.DataFrame:
         """
-        Backward compatibility.
-
-        Existing code can continue calling:
-
-            IndicatorEngine.calculate_all(df)
-
-        without any modification.
+        Compatibility wrapper.
         """
 
         return IndicatorEngine.prepare(df)
