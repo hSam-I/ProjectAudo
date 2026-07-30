@@ -9,6 +9,9 @@ def test_mean_reversion_buy():
     df = pd.DataFrame(
         [
             {
+                "close": 95,
+                "bb_lower": 100,
+                "bb_upper": 120,
                 "rsi": 25,
             }
         ]
@@ -24,6 +27,9 @@ def test_mean_reversion_sell():
     df = pd.DataFrame(
         [
             {
+                "close": 125,
+                "bb_lower": 100,
+                "bb_upper": 120,
                 "rsi": 75,
             }
         ]
@@ -39,6 +45,9 @@ def test_mean_reversion_hold():
     df = pd.DataFrame(
         [
             {
+                "close": 110,
+                "bb_lower": 100,
+                "bb_upper": 120,
                 "rsi": 50,
             }
         ]

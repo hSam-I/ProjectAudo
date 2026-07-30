@@ -3,21 +3,10 @@ from app.strategy.base_strategy import BaseStrategy
 
 
 class MeanReversionStrategy(BaseStrategy):
-    """
-    Mean Reversion Strategy
-
-    BUY:
-        RSI < 30
-
-    SELL:
-        RSI > 70
-
-    Otherwise HOLD
-    """
 
     name = "mean_reversion"
 
-    description = "Mean Reversion Strategy"
+    description = "Mean Reversion"
 
     version = "1.0"
 
@@ -25,12 +14,18 @@ class MeanReversionStrategy(BaseStrategy):
 
         last = df.iloc[-1]
 
-        rsi = last["rsi"]
+        close = last.get("close")
+        upper = last.get("bb_upper")
+        lower = last.get("bb_lower")
+        rsi = last.get("rsi")
 
-        if rsi < 30:
+        if None in (close, upper, lower, rsi):
+            return Signal.HOLD
+
+        if close < lower and rsi < 30:
             return Signal.BUY
 
-        if rsi > 70:
+        if close > upper and rsi > 70:
             return Signal.SELL
 
         return Signal.HOLD

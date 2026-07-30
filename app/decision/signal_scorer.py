@@ -1,56 +1,65 @@
-import pandas as pd
+from app.core.indicator_accessor import IndicatorAccessor
 
 
 class SignalScorer:
 
     @staticmethod
-    def score(df: pd.DataFrame):
+    def score(df):
 
         last = df.iloc[-1]
 
         score = 0
-
         reasons = []
 
-        # EMA
-        if last["ema_20"] > last["ema_50"]:
-            score += 30
-            reasons.append("EMA Bullish")
+        ema_fast = IndicatorAccessor.ema_fast(last)
+        ema_slow = IndicatorAccessor.ema_slow(last)
 
-        else:
-            reasons.append("EMA Bearish")
+        rsi = IndicatorAccessor.rsi(last)
 
-        # RSI
-        if last["rsi"] < 30:
-            score += 25
-            reasons.append("RSI Oversold")
+        macd = IndicatorAccessor.macd(last)
+        macd_signal = IndicatorAccessor.macd_signal(last)
 
-        elif last["rsi"] > 70:
-            reasons.append("RSI Overbought")
+        adx = IndicatorAccessor.adx(last)
 
-        else:
+        if ema_fast is not None and ema_slow is not None:
+            if ema_fast > ema_slow:
+                score += 20
+                reasons.append("EMA Trend Bullish")
+            else:
+                score -= 20
+                reasons.append("EMA Trend Bearish")
+
+        if rsi is not None:
+            if rsi > 55:
+                score += 15
+                reasons.append("RSI Bullish")
+
+            elif rsi < 45:
+                score -= 15
+                reasons.append("RSI Bearish")
+
+        if (
+            macd is not None
+            and macd_signal is not None
+        ):
+            if macd > macd_signal:
+                score += 15
+                reasons.append("MACD Bullish")
+
+            else:
+                score -= 15
+                reasons.append("MACD Bearish")
+
+        if adx is not None and adx > 25:
             score += 10
-            reasons.append("RSI Neutral")
-
-        # MACD
-        if last["macd_histogram"] > 0:
-            score += 20
-            reasons.append("MACD Bullish")
-
-        else:
-            reasons.append("MACD Bearish")
-
-        # ATR
-        if last["atr"] > 0:
-            score += 10
-            reasons.append("ATR Valid")
+            reasons.append("Strong Trend")
 
         confidence = "LOW"
 
-        if score >= 75:
+        if score >= 60:
             confidence = "HIGH"
 
-        elif score >= 50:
+        elif score >= 30:
             confidence = "MEDIUM"
 
         return score, confidence, reasons

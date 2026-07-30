@@ -13,8 +13,8 @@ class FeatureExtractor:
 
         return {
             "close": float(last["close"]),
-            "ema20": float(last["ema_20"]),
-            "ema50": float(last["ema_50"]),
+            "ema_fast": float(last["ema_fast"]),
+            "ema_slow": float(last["ema_slow"]),
             "rsi": float(last["rsi"]),
             "atr": float(last["atr"]),
             "macd": float(last["macd"]),

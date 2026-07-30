@@ -21,24 +21,24 @@ class EMARSIStrategy(BaseStrategy):
         previous = df.iloc[-2]
         current = df.iloc[-1]
 
-        prev_ema20 = previous["ema_20"]
-        prev_ema50 = previous["ema_50"]
+        prev_ema_fast = previous["ema_fast"]
+        prev_ema_slow = previous["ema_slow"]
 
-        ema20 = current["ema_20"]
-        ema50 = current["ema_50"]
+        ema_fast = current["ema_fast"]
+        ema_slow = current["ema_slow"]
 
         rsi = current["rsi"]
 
         if (
-            prev_ema20 <= prev_ema50
-            and ema20 > ema50
+            prev_ema_fast <= prev_ema_slow
+            and ema_fast > ema_slow
             and rsi < 70
         ):
             return Signal.BUY
 
         if (
-            prev_ema20 >= prev_ema50
-            and ema20 < ema50
+            prev_ema_fast >= prev_ema_slow
+            and ema_fast < ema_slow
             and rsi > 30
         ):
             return Signal.SELL

@@ -1,21 +1,25 @@
-from app.strategy.strategy_factory import (
-    StrategyFactory,
+from app.strategy.strategy_factory import StrategyFactory
+from app.strategy.trend_following_strategy import (
+    TrendFollowingStrategy,
 )
 
 
-def test_strategy_factory():
+def test_create_strategy():
 
     strategy = StrategyFactory.create(
-        {
-            "ema_fast": 10,
-            "ema_slow": 30,
-            "rsi_buy": 60,
-            "rsi_sell": 40,
-        }
+        "trend_following"
     )
 
-    assert strategy.ema_fast == 10
-    assert strategy.ema_slow == 30
+    assert isinstance(
+        strategy,
+        TrendFollowingStrategy,
+    )
 
-    assert strategy.rsi_buy == 60
-    assert strategy.rsi_sell == 40
+
+def test_available_strategies():
+
+    names = StrategyFactory.available_strategies()
+
+    assert "trend_following" in names
+    assert "breakout" in names
+    assert "mean_reversion" in names

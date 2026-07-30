@@ -1,5 +1,5 @@
 from app.indicators.indicator_engine import IndicatorEngine
-from app.strategy.strategy_factory import StrategyFactory
+from app.strategy.trend_following_strategy import TrendFollowingStrategy
 
 
 class BacktestRunner:
@@ -14,14 +14,18 @@ class BacktestRunner:
         parameters: dict,
     ):
 
-        strategy = StrategyFactory.create(
-            parameters,
+        ema_fast = parameters.get("ema_fast", 20)
+        ema_slow = parameters.get("ema_slow", 50)
+
+        strategy = TrendFollowingStrategy(
+            ema_fast=ema_fast,
+            ema_slow=ema_slow,
         )
 
         df = IndicatorEngine.prepare(
             df=df,
-            ema_fast=strategy.ema_fast,
-            ema_slow=strategy.ema_slow,
+            ema_fast=ema_fast,
+            ema_slow=ema_slow,
         )
 
         return df, strategy

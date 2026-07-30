@@ -76,8 +76,8 @@ def main():
     print("=" * 70)
 
     print(f"Current Price : {last['close']:.2f}")
-    print(f"EMA20         : {last['ema_20']:.2f}")
-    print(f"EMA50         : {last['ema_50']:.2f}")
+    print(f"EMA Fast      : {last['ema_fast']:.2f}")
+    print(f"EMA Slow      : {last['ema_slow']:.2f}")
     print(f"RSI           : {last['rsi']:.2f}")
     print(f"MACD          : {last['macd']:.2f}")
     print(f"ATR           : {last['atr']:.2f}")

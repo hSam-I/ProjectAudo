@@ -1,0 +1,20 @@
+from enum import Enum
+
+
+class MarketRegime(str, Enum):
+
+    TRENDING_BULL = "TRENDING_BULL"
+
+    TRENDING_BEAR = "TRENDING_BEAR"
+
+    RANGING = "RANGING"
+
+    BREAKOUT = "BREAKOUT"
+
+    HIGH_VOLATILITY = "HIGH_VOLATILITY"
+
+    LOW_VOLATILITY = "LOW_VOLATILITY"
+
+    MEAN_REVERSION = "MEAN_REVERSION"
+
+    UNKNOWN = "UNKNOWN"

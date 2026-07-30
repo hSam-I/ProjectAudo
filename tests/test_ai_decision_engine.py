@@ -9,8 +9,8 @@ def test_ai_decision_engine():
         [
             {
                 "close": 100,
-                "ema_20": 105,
-                "ema_50": 100,
+                "ema_fast": 105,
+                "ema_slow": 100,
                 "rsi": 60,
                 "atr": 2,
                 "macd": 1.5,

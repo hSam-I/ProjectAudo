@@ -1,5 +1,7 @@
 import pandas as pd
 
+from app.core.indicator_accessor import IndicatorAccessor
+
 
 class MarketRegime:
     """
@@ -33,12 +35,20 @@ class MarketRegime:
 
         last = df.iloc[-1]
 
-        ema20 = float(last["ema_20"])
-        ema50 = float(last["ema_50"])
+        ema_fast = IndicatorAccessor.ema_fast(last)
+        ema_slow = IndicatorAccessor.ema_slow(last)
 
-        distance = abs(ema20 - ema50)
+        if ema_fast is None or ema_slow is None:
+            return MarketRegime.RANGE
 
-        percentage = distance / ema50 * 100
+        ema_fast = float(ema_fast)
+        ema_slow = float(ema_slow)
+
+        if ema_slow == 0:
+            return MarketRegime.RANGE
+
+        distance = abs(ema_fast - ema_slow)
+        percentage = distance / ema_slow * 100
 
         if percentage >= 3:
             return MarketRegime.TREND

@@ -1,35 +1,50 @@
-from app.strategy.trend_following_strategy import (
-    TrendFollowingStrategy,
-)
+from app.strategy.base_strategy import BaseStrategy
+from app.strategy.breakout_strategy import BreakoutStrategy
+from app.strategy.mean_reversion_strategy import MeanReversionStrategy
+from app.strategy.scalping_strategy import ScalpingStrategy
+from app.strategy.swing_strategy import SwingStrategy
+from app.strategy.trend_following_strategy import TrendFollowingStrategy
 
 
 class StrategyFactory:
     """
-    Creates strategy instances.
+    Factory responsible for creating
+    strategy instances.
     """
 
-    @staticmethod
+    _strategies = {
+        "trend_following": TrendFollowingStrategy,
+        "mean_reversion": MeanReversionStrategy,
+        "breakout": BreakoutStrategy,
+        "scalping": ScalpingStrategy,
+        "swing": SwingStrategy,
+    }
+
+    @classmethod
     def create(
-        parameters: dict | None = None,
+        cls,
+        name: str,
+    ) -> BaseStrategy:
+
+        strategy = cls._strategies.get(name)
+
+        if strategy is None:
+            raise ValueError(
+                f"Unknown strategy: {name}"
+            )
+
+        return strategy()
+
+    @classmethod
+    def available_strategies(cls):
+
+        return sorted(cls._strategies.keys())
+
+    @classmethod
+    def register(
+        cls,
+        name: str,
+        strategy: type[BaseStrategy],
     ):
 
-        parameters = parameters or {}
-
-        return TrendFollowingStrategy(
-            ema_fast=parameters.get(
-                "ema_fast",
-                20,
-            ),
-            ema_slow=parameters.get(
-                "ema_slow",
-                50,
-            ),
-            rsi_buy=parameters.get(
-                "rsi_buy",
-                55,
-            ),
-            rsi_sell=parameters.get(
-                "rsi_sell",
-                45,
-            ),
-        )
+        cls._strategies[name] = strategy

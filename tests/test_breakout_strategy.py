@@ -1,79 +1,52 @@
 import pandas as pd
 
+from app.core.enums import Signal
 from app.strategy.breakout_strategy import BreakoutStrategy
 
 
 def test_breakout_buy():
 
-    rows = []
-
-    for i in range(20):
-        rows.append(
+    df = pd.DataFrame(
+        [
             {
-                "high": 100 + i,
-                "low": 90 + i,
-                "close": 95 + i,
+                "breakout": True,
+                "breakdown": False,
             }
-        )
-
-    rows.append(
-        {
-            "high": 125,
-            "low": 118,
-            "close": 130,
-        }
+        ]
     )
-
-    df = pd.DataFrame(rows)
 
     strategy = BreakoutStrategy()
 
-    assert strategy.generate_signal(df) == "BUY"
+    assert strategy.generate_signal(df) == Signal.BUY
 
 
 def test_breakout_sell():
 
-    rows = []
-
-    for i in range(20):
-        rows.append(
+    df = pd.DataFrame(
+        [
             {
-                "high": 120 + i,
-                "low": 100 + i,
-                "close": 110 + i,
+                "breakout": False,
+                "breakdown": True,
             }
-        )
-
-    rows.append(
-        {
-            "high": 118,
-            "low": 80,
-            "close": 79,
-        }
+        ]
     )
-
-    df = pd.DataFrame(rows)
 
     strategy = BreakoutStrategy()
 
-    assert strategy.generate_signal(df) == "SELL"
+    assert strategy.generate_signal(df) == Signal.SELL
 
 
 def test_breakout_hold():
 
-    rows = []
-
-    for i in range(21):
-        rows.append(
+    df = pd.DataFrame(
+        [
             {
-                "high": 100,
-                "low": 90,
-                "close": 95,
+                "breakout": False,
+                "breakdown": False,
             }
-        )
-
-    df = pd.DataFrame(rows)
+        ]
+    )
 
     strategy = BreakoutStrategy()
 
-    assert strategy.generate_signal(df) == "HOLD"
+    assert strategy.generate_signal(df) == Signal.HOLD

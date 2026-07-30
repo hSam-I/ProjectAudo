@@ -3,28 +3,24 @@ from app.strategy.base_strategy import BaseStrategy
 
 
 class BreakoutStrategy(BaseStrategy):
-    """
-    Simple breakout strategy.
-    """
 
     name = "breakout"
 
-    description = "Simple breakout strategy."
+    description = "Breakout Strategy"
 
     version = "1.0"
 
-    def generate_signal(self, df) -> Signal:
+    def generate_signal(self, df):
 
-        if len(df) < 2:
-            return Signal.HOLD
+        last = df.iloc[-1]
 
-        previous = df.iloc[-2]
-        current = df.iloc[-1]
+        breakout = last.get("breakout", False)
+        breakdown = last.get("breakdown", False)
 
-        if current["close"] > previous["high"]:
+        if breakout:
             return Signal.BUY
 
-        if current["close"] < previous["low"]:
+        if breakdown:
             return Signal.SELL
 
         return Signal.HOLD
