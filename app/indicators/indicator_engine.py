@@ -7,6 +7,7 @@ from app.indicators.ema import EMA
 from app.indicators.macd import MACD
 from app.indicators.obv import OBV
 from app.indicators.rsi import RSI
+from app.indicators.stochastic import Stochastic
 from app.indicators.vwap import VWAP
 
 
@@ -28,13 +29,15 @@ class IndicatorEngine:
         adx_period: int = 14,
         bb_period: int = 20,
         bb_std: float = 2.0,
+        stochastic_period: int = 14,
+        stochastic_smooth: int = 3,
     ) -> pd.DataFrame:
 
         df = df.copy()
 
-        # ==========================
+        # ==================================================
         # EMA
-        # ==========================
+        # ==================================================
 
         df = EMA.calculate(
             df=df,
@@ -49,42 +52,42 @@ class IndicatorEngine:
         df["ema_fast"] = df[f"ema_{ema_fast}"]
         df["ema_slow"] = df[f"ema_{ema_slow}"]
 
-        # ==========================
+        # ==================================================
         # RSI
-        # ==========================
+        # ==================================================
 
         df = RSI.calculate(
             df=df,
             period=rsi_period,
         )
 
-        # ==========================
+        # ==================================================
         # ATR
-        # ==========================
+        # ==================================================
 
         df = ATR.calculate(
             df=df,
             period=atr_period,
         )
 
-        # ==========================
+        # ==================================================
         # MACD
-        # ==========================
+        # ==================================================
 
         df = MACD.calculate(df)
 
-        # ==========================
+        # ==================================================
         # ADX
-        # ==========================
+        # ==================================================
 
         df = ADX.calculate(
             df=df,
             period=adx_period,
         )
 
-        # ==========================
+        # ==================================================
         # Bollinger Bands
-        # ==========================
+        # ==================================================
 
         df = BollingerBands.calculate(
             df=df,
@@ -92,16 +95,40 @@ class IndicatorEngine:
             std_multiplier=bb_std,
         )
 
-        # ==========================
+        # ==================================================
         # VWAP
-        # ==========================
+        # ==================================================
 
         df = VWAP.calculate(df)
 
-        # ==========================
+        # ==================================================
         # OBV
-        # ==========================
+        # ==================================================
 
         df = OBV.calculate(df)
 
+        # ==================================================
+        # Stochastic Oscillator
+        # ==================================================
+
+        df = Stochastic.calculate(
+            df=df,
+            period=stochastic_period,
+            smooth=stochastic_smooth,
+        )
+
         return df
+
+    @staticmethod
+    def calculate_all(
+        df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        Compatibility wrapper.
+
+        Existing code that calls
+        IndicatorEngine.calculate_all()
+        will continue to work.
+        """
+
+        return IndicatorEngine.prepare(df)
