@@ -38,4 +38,6 @@ def test_indicator_engine():
     assert "bb_middle" in result.columns
     assert "bb_lower" in result.columns
 
+    assert "vwap" in result.columns
+
     assert len(result) == 100

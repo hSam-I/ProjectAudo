@@ -6,6 +6,7 @@ from app.indicators.bollinger import BollingerBands
 from app.indicators.ema import EMA
 from app.indicators.macd import MACD
 from app.indicators.rsi import RSI
+from app.indicators.vwap import VWAP
 
 
 class IndicatorEngine:
@@ -89,5 +90,11 @@ class IndicatorEngine:
             period=bb_period,
             std_multiplier=bb_std,
         )
+
+        # ==========================
+        # VWAP
+        # ==========================
+
+        df = VWAP.calculate(df)
 
         return df
