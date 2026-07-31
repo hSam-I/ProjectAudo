@@ -1,25 +1,44 @@
 from app.backtesting.portfolio import Portfolio
 from app.backtesting.trade import Trade
+
 from app.broker.paper_broker import PaperBroker
+
 from app.config.settings import settings
-from app.core.enums import OrderSide, Signal
+
+from app.core.enums import OrderSide
+from app.core.enums import Signal
+
 from app.decision.decision_engine import DecisionEngine
+
 from app.indicators.indicator_engine import IndicatorEngine
+
+from app.logging.logger import logger
+
 from app.risk.portfolio_risk_manager import PortfolioRiskManager
 from app.risk.position_manager import PositionManager
 from app.risk.position_sizer import PositionSizer
 from app.risk.risk_manager import RiskManager
+
 from app.strategy.base_strategy import BaseStrategy
 
 
 class Backtester:
     """
-    Historical backtesting engine.
+    Historical Backtesting Engine.
 
-    Signals are generated on candle i (close),
-    but executed on candle i+1 (open).
+    Pipeline
 
-    This avoids look-ahead bias.
+    Raw Data
+        ↓
+    IndicatorEngine
+        ↓
+    Feature Pipeline
+        ↓
+    Decision Engine
+        ↓
+    Risk Manager
+        ↓
+    Paper Broker
     """
 
     def __init__(
@@ -41,13 +60,16 @@ class Backtester:
             strategy=strategy,
         )
 
-    def run(self, df):
+    def run(
+        self,
+        df,
+    ):
 
-        # =====================================================
-        # Calculate every indicator before backtesting
-        # =====================================================
+        # --------------------------------------------------
+        # Build indicators + AI features
+        # --------------------------------------------------
 
-        df = IndicatorEngine.prepare(df)
+        df = IndicatorEngine.calculate_all(df)
 
         current_trade = None
 
@@ -64,29 +86,38 @@ class Backtester:
 
             signal = decision.signal
 
-            execution_candle = df.iloc[i + 1]
+            execution = df.iloc[i + 1]
 
-            current_high = execution_candle["high"]
-            current_low = execution_candle["low"]
-            current_close = execution_candle["close"]
+            entry_price = execution["open"]
 
-            entry_price = execution_candle["open"]
+            current_price = execution["close"]
 
-            entry_time = str(
-                execution_candle["timestamp"]
-            )
+            current_high = execution["high"]
+
+            current_low = execution["low"]
 
             atr = history.iloc[-1]["atr"]
 
-            # =====================================================
-            # Position Management
-            # =====================================================
+            entry_time = str(
+                execution["timestamp"]
+            )
+
+            logger.info(
+                f"{entry_time} | "
+                f"RAW={decision.raw_signal} | "
+                f"FINAL={decision.signal} | "
+                f"SCORE={decision.score}"
+            )
+
+            # --------------------------------------------------
+            # Manage existing trade
+            # --------------------------------------------------
 
             if current_trade is not None:
 
                 PositionManager.update(
                     trade=current_trade,
-                    current_price=current_close,
+                    current_price=current_price,
                     atr=atr,
                 )
 
@@ -98,7 +129,13 @@ class Backtester:
                         reason="STOP_LOSS",
                     )
 
-                    self.broker.close(current_trade)
+                    self.broker.close(
+                        current_trade
+                    )
+
+                    logger.info(
+                        f"STOP LOSS @ {current_trade.stop_loss:.2f}"
+                    )
 
                     current_trade = None
 
@@ -112,15 +149,21 @@ class Backtester:
                         reason="TAKE_PROFIT",
                     )
 
-                    self.broker.close(current_trade)
+                    self.broker.close(
+                        current_trade
+                    )
+
+                    logger.info(
+                        f"TAKE PROFIT @ {current_trade.take_profit:.2f}"
+                    )
 
                     current_trade = None
 
                     continue
 
-            # =====================================================
+            # --------------------------------------------------
             # BUY
-            # =====================================================
+            # --------------------------------------------------
 
             if (
                 signal == Signal.BUY
@@ -156,16 +199,14 @@ class Backtester:
                     )
                 )
 
-                quantity = (
-                    PositionSizer.calculate_position_size(
-                        balance=self.portfolio.balance,
-                        risk_amount=risk_amount,
-                        stop_loss_distance=stop_loss_distance,
-                    )
+                quantity = PositionSizer.calculate_position_size(
+                    balance=self.portfolio.balance,
+                    risk_amount=risk_amount,
+                    stop_loss_distance=stop_loss_distance,
                 )
 
                 current_trade = Trade(
-                    symbol=settings.symbol,
+                    symbol=settings.symbols[0],
                     side=OrderSide.BUY,
                     entry_price=entry_price,
                     quantity=quantity,
@@ -175,11 +216,17 @@ class Backtester:
                     risk_amount=risk_amount,
                 )
 
-                self.broker.buy(current_trade)
+                logger.info(
+                    f"BUY OPENED @ {entry_price:.2f}"
+                )
 
-            # =====================================================
+                self.broker.buy(
+                    current_trade
+                )
+
+            # --------------------------------------------------
             # SELL
-            # =====================================================
+            # --------------------------------------------------
 
             elif (
                 signal == Signal.SELL
@@ -192,7 +239,13 @@ class Backtester:
                     reason="SIGNAL",
                 )
 
-                self.broker.close(current_trade)
+                self.broker.close(
+                    current_trade
+                )
+
+                logger.info(
+                    f"SELL @ {entry_price:.2f}"
+                )
 
                 current_trade = None
 

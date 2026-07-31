@@ -7,6 +7,7 @@ from app.config.settings import settings
 from app.core.enums import Signal
 from app.decision.signal_filter import SignalFilter
 from app.decision.signal_scorer import SignalScorer
+from app.logging.logger import logger
 from app.market.regime import MarketRegime
 from app.market.regime_detector import MarketRegimeDetector
 from app.strategy.base_strategy import BaseStrategy
@@ -15,11 +16,9 @@ from app.strategy.registry import get_strategy
 
 @dataclass
 class Decision:
-    """
-    Decision object returned by DecisionEngine.
-    """
 
     raw_signal: Signal
+
     signal: Signal
 
     score: int
@@ -32,16 +31,6 @@ class Decision:
 
 
 class DecisionEngine:
-    """
-    Central AI Decision Engine.
-
-    Keeps backward compatibility while extending
-    the architecture with:
-
-    - Market Regime Detection
-    - AI Feature Scoring
-    - Signal Scoring
-    """
 
     def __init__(
         self,
@@ -57,30 +46,37 @@ class DecisionEngine:
         df: pd.DataFrame,
     ) -> Decision:
 
-        # -----------------------------
-        # Market Regime
-        # -----------------------------
+        # ==================================================
+        # MARKET REGIME
+        # ==================================================
 
         try:
+
             regime = MarketRegimeDetector.detect(df)
-        except Exception:
+
+        except Exception as e:
+
+            logger.warning(
+                f"Market Regime Detection Failed: {e}"
+            )
+
             regime = MarketRegime.UNKNOWN
 
-        # -----------------------------
-        # Strategy Signal
-        # -----------------------------
+        # ==================================================
+        # STRATEGY SIGNAL
+        # ==================================================
 
         raw_signal = self.strategy.generate_signal(df)
 
-        # -----------------------------
-        # Legacy Score
-        # -----------------------------
+        # ==================================================
+        # LEGACY SCORE
+        # ==================================================
 
         score, confidence, reasons = SignalScorer.score(df)
 
-        # -----------------------------
-        # AI Score
-        # -----------------------------
+        # ==================================================
+        # AI SCORE
+        # ==================================================
 
         try:
 
@@ -90,22 +86,41 @@ class DecisionEngine:
 
             reasons.extend(ai_reasons)
 
-        except Exception:
-            pass
+        except Exception as e:
 
-        # -----------------------------
-        # Clamp score
-        # -----------------------------
+            logger.warning(
+                f"AI Score Engine Failed: {e}"
+            )
 
-        score = max(-100, min(100, score))
+        # ==================================================
+        # CLAMP
+        # ==================================================
 
-        # -----------------------------
-        # Final Signal
-        # -----------------------------
+        score = max(
+            -100,
+            min(
+                100,
+                score,
+            ),
+        )
+
+        # ==================================================
+        # FILTER
+        # ==================================================
 
         signal = SignalFilter.filter(
             raw_signal,
             score,
+        )
+
+        # ==================================================
+        # RESULT
+        # ==================================================
+
+        regime_value = (
+            regime.value
+            if hasattr(regime, "value")
+            else str(regime)
         )
 
         return Decision(
@@ -114,5 +129,5 @@ class DecisionEngine:
             score=score,
             confidence=confidence,
             reasons=reasons,
-            regime=regime.value,
+            regime=regime_value,
         )

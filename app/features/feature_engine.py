@@ -57,4 +57,14 @@ class FeatureEngine:
 
         df = MarketFeatures.build(df)
 
+        # ----------------------------------------
+        # Compatibility aliases
+        # ----------------------------------------
+
+        if "trend_up" in df.columns:
+            df["trend_market"] = df["trend_up"]
+
+        if "strong_trend" in df.columns:
+            df["trend_strength_ok"] = df["strong_trend"]
+
         return df

@@ -10,9 +10,21 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    starting_balance: float = 10000
+    # =====================================================
+    # ACCOUNT
+    # =====================================================
 
-    risk_per_trade: float = 0.01
+    starting_balance: float = 10_000.0
+
+    leverage: int = 1
+
+    commission: float = 0.001
+
+    slippage: float = 0.0005
+
+    # =====================================================
+    # MARKET
+    # =====================================================
 
     symbols: list[str] = [
         "BTC/USDT",
@@ -20,11 +32,89 @@ class Settings(BaseSettings):
 
     timeframe: str = "1h"
 
-    strategy: str = "ema_rsi"
+    candle_limit: int = 500
 
     warmup_candles: int = 50
 
+    exchange: str = "binance"
+
+    # =====================================================
+    # STRATEGY
+    # =====================================================
+
+    strategy: str = "ema_rsi"
+
     max_open_positions: int = 5
+
+    # =====================================================
+    # RISK
+    # =====================================================
+
+    risk_per_trade: float = 0.01
+
+    max_portfolio_risk: float = 0.05
+
+    stop_loss_atr: float = 2.0
+
+    take_profit_rr: float = 2.0
+
+    trailing_stop_atr: float = 2.0
+
+    break_even_rr: float = 1.0
+
+    partial_tp_rr: float = 1.5
+
+    # =====================================================
+    # POSITION SIZING
+    # =====================================================
+
+    minimum_position_size: float = 10.0
+
+    maximum_position_size: float = 100000.0
+
+    # =====================================================
+    # AI
+    # =====================================================
+
+    ai_enabled: bool = True
+
+    minimum_ai_score: int = 20
+
+    minimum_confidence: float = 0.60
+
+    # =====================================================
+    # BACKTEST
+    # =====================================================
+
+    backtest_initial_cash: float = 10000.0
+
+    backtest_save_reports: bool = True
+
+    # =====================================================
+    # OPTIMIZATION
+    # =====================================================
+
+    optimization_trials: int = 100
+
+    optimization_metric: str = "profit_factor"
+
+    # =====================================================
+    # REPORTING
+    # =====================================================
+
+    report_folder: str = "reports"
+
+    log_level: str = "INFO"
+
+    # =====================================================
+    # SCHEDULER
+    # =====================================================
+
+    scheduler_interval_seconds: int = 60
+
+    # =====================================================
+    # VALIDATORS
+    # =====================================================
 
     @field_validator("symbols", mode="before")
     @classmethod
@@ -37,6 +127,24 @@ class Settings(BaseSettings):
             ]
 
         return value
+
+    # =====================================================
+    # BACKWARD COMPATIBILITY
+    # =====================================================
+
+    @property
+    def symbol(self) -> str:
+        """
+        Legacy support.
+
+        Old code:
+            settings.symbol
+
+        New code:
+            settings.symbols
+        """
+
+        return self.symbols[0]
 
 
 settings = Settings()

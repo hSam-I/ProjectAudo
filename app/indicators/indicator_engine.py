@@ -1,5 +1,7 @@
 import pandas as pd
 
+from app.features.feature_pipeline import FeaturePipeline
+
 from app.indicators.adx import ADX
 from app.indicators.atr import ATR
 from app.indicators.bollinger import BollingerBands
@@ -21,7 +23,6 @@ class IndicatorEngine:
 
     - Strategies
     - AI
-    - Optimizer
     - Backtesting
     - Reporting
     """
@@ -47,15 +48,8 @@ class IndicatorEngine:
         # EMA
         # ==================================================
 
-        df = EMA.calculate(
-            df=df,
-            period=ema_fast,
-        )
-
-        df = EMA.calculate(
-            df=df,
-            period=ema_slow,
-        )
+        df = EMA.calculate(df=df, period=ema_fast)
+        df = EMA.calculate(df=df, period=ema_slow)
 
         df["ema_fast"] = df[f"ema_{ema_fast}"]
         df["ema_slow"] = df[f"ema_{ema_slow}"]
@@ -94,7 +88,7 @@ class IndicatorEngine:
         )
 
         # ==================================================
-        # Bollinger Bands
+        # Bollinger
         # ==================================================
 
         df = BollingerBands.calculate(
@@ -125,13 +119,13 @@ class IndicatorEngine:
         )
 
         # ==================================================
-        # Ichimoku Cloud
+        # Ichimoku
         # ==================================================
 
         df = Ichimoku.calculate(df)
 
         # ==================================================
-        # Stochastic Oscillator
+        # Stochastic
         # ==================================================
 
         df = Stochastic.calculate(
@@ -140,14 +134,21 @@ class IndicatorEngine:
             smooth=stochastic_smooth,
         )
 
+        # ==================================================
+        # FEATURE PIPELINE
+        # ==================================================
+
+        df = FeaturePipeline.build(
+            df=df,
+            ema_fast=ema_fast,
+            ema_slow=ema_slow,
+        )
+
         return df
 
     @staticmethod
     def calculate_all(
         df: pd.DataFrame,
     ) -> pd.DataFrame:
-        """
-        Compatibility wrapper.
-        """
 
         return IndicatorEngine.prepare(df)
