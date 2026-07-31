@@ -2,9 +2,9 @@ from app.backtesting.portfolio import Portfolio
 from app.backtesting.trade import Trade
 from app.broker.paper_broker import PaperBroker
 from app.config.settings import settings
-from app.core.enums import OrderSide
-from app.core.enums import Signal
+from app.core.enums import OrderSide, Signal
 from app.decision.decision_engine import DecisionEngine
+from app.indicators.indicator_engine import IndicatorEngine
 from app.risk.portfolio_risk_manager import PortfolioRiskManager
 from app.risk.position_manager import PositionManager
 from app.risk.position_sizer import PositionSizer
@@ -43,6 +43,12 @@ class Backtester:
 
     def run(self, df):
 
+        # =====================================================
+        # Calculate every indicator before backtesting
+        # =====================================================
+
+        df = IndicatorEngine.prepare(df)
+
         current_trade = None
 
         for i in range(
@@ -72,9 +78,9 @@ class Backtester:
 
             atr = history.iloc[-1]["atr"]
 
-            # ==========================================
-            # POSITION MANAGEMENT
-            # ==========================================
+            # =====================================================
+            # Position Management
+            # =====================================================
 
             if current_trade is not None:
 
@@ -92,9 +98,7 @@ class Backtester:
                         reason="STOP_LOSS",
                     )
 
-                    self.broker.close(
-                        current_trade
-                    )
+                    self.broker.close(current_trade)
 
                     current_trade = None
 
@@ -108,17 +112,15 @@ class Backtester:
                         reason="TAKE_PROFIT",
                     )
 
-                    self.broker.close(
-                        current_trade
-                    )
+                    self.broker.close(current_trade)
 
                     current_trade = None
 
                     continue
 
-            # ==========================================
+            # =====================================================
             # BUY
-            # ==========================================
+            # =====================================================
 
             if (
                 signal == Signal.BUY
@@ -128,10 +130,8 @@ class Backtester:
                 )
             ):
 
-                risk_amount = (
-                    self.risk_manager.risk_amount(
-                        self.portfolio.balance
-                    )
+                risk_amount = self.risk_manager.risk_amount(
+                    self.portfolio.balance
                 )
 
                 if not PortfolioRiskManager.can_take_risk(
@@ -140,18 +140,14 @@ class Backtester:
                 ):
                     continue
 
-                stop_loss = (
-                    self.risk_manager.stop_loss(
-                        entry_price,
-                        atr,
-                    )
+                stop_loss = self.risk_manager.stop_loss(
+                    entry_price,
+                    atr,
                 )
 
-                take_profit = (
-                    self.risk_manager.take_profit(
-                        entry_price,
-                        atr,
-                    )
+                take_profit = self.risk_manager.take_profit(
+                    entry_price,
+                    atr,
                 )
 
                 stop_loss_distance = (
@@ -179,13 +175,11 @@ class Backtester:
                     risk_amount=risk_amount,
                 )
 
-                self.broker.buy(
-                    current_trade
-                )
-                
-            # ==========================================
+                self.broker.buy(current_trade)
+
+            # =====================================================
             # SELL
-            # ==========================================
+            # =====================================================
 
             elif (
                 signal == Signal.SELL
@@ -198,9 +192,7 @@ class Backtester:
                     reason="SIGNAL",
                 )
 
-                self.broker.close(
-                    current_trade
-                )
+                self.broker.close(current_trade)
 
                 current_trade = None
 

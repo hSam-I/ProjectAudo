@@ -4,44 +4,35 @@ from app.strategy.ema_rsi_strategy import EMARSIStrategy
 
 
 class StrategySelector:
-    """
-    Dynamically selects the best strategy.
-    """
 
     @staticmethod
     def choose(df):
-        """
-        Returns the strategy name.
-        """
 
         regime = MarketRegime.detect(df)
 
-        if regime == "bull":
+        if regime == MarketRegime.TREND:
             return "ema_rsi"
 
-        if regime == "sideways":
+        if regime == MarketRegime.RANGE:
             return "breakout"
 
-        if regime == "volatile":
+        if regime == MarketRegime.BREAKOUT:
             return "breakout"
 
         return "ema_rsi"
 
     @staticmethod
     def select(df):
-        """
-        Returns a strategy instance.
-        """
 
         regime = MarketRegime.detect(df)
 
-        if regime == "bull":
+        if regime == MarketRegime.TREND:
             return EMARSIStrategy()
 
-        if regime == "sideways":
+        if regime == MarketRegime.RANGE:
             return BreakoutStrategy()
 
-        if regime == "volatile":
+        if regime == MarketRegime.BREAKOUT:
             return BreakoutStrategy()
 
         return EMARSIStrategy()

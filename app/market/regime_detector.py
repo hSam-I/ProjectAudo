@@ -4,9 +4,6 @@ from app.market.regime import MarketRegime
 
 
 class MarketRegimeDetector:
-    """
-    Detects the current market regime.
-    """
 
     @staticmethod
     def detect(
@@ -15,46 +12,22 @@ class MarketRegimeDetector:
 
         last = df.iloc[-1]
 
-        # -----------------------------
-        # Breakout
-        # -----------------------------
-
-        if last["breakout"]:
+        if last.get("breakout", False):
             return MarketRegime.BREAKOUT
 
-        # -----------------------------
-        # Bull Trend
-        # -----------------------------
-
-        if last["trend_market"]:
+        if last.get("trend_market", False):
             return MarketRegime.TRENDING_BULL
 
-        # -----------------------------
-        # Bear Trend
-        # -----------------------------
-
-        if last["bear_market"]:
+        if last.get("bear_market", False):
             return MarketRegime.TRENDING_BEAR
 
-        # -----------------------------
-        # Sideways
-        # -----------------------------
-
-        if last["sideways_market"]:
+        if last.get("sideways_market", False):
             return MarketRegime.RANGING
 
-        # -----------------------------
-        # High Volatility
-        # -----------------------------
-
-        if last["high_volatility_market"]:
+        if last.get("high_volatility_market", False):
             return MarketRegime.HIGH_VOLATILITY
 
-        # -----------------------------
-        # Low Volatility
-        # -----------------------------
-
-        if last["low_volatility_market"]:
+        if last.get("low_volatility_market", False):
             return MarketRegime.LOW_VOLATILITY
 
         return MarketRegime.UNKNOWN

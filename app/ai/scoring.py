@@ -15,7 +15,7 @@ class MarketScore:
 
         score = 0
 
-        if features["ema20"] > features["ema50"]:
+        if features["ema_fast"] > features["ema_slow"]:
             score += 1
 
         if 45 <= features["rsi"] <= 65:
