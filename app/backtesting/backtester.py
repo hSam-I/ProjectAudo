@@ -51,7 +51,9 @@ class Backtester:
         )
 
         self.broker = PaperBroker(
-            self.portfolio
+            self.portfolio,
+            fee_rate=settings.commission,
+            slippage=settings.slippage,
         )
 
         self.risk_manager = RiskManager()
