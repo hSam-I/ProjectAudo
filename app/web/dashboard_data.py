@@ -2,37 +2,50 @@ from app.backtesting.backtester import Backtester
 from app.backtesting.performance import PerformanceAnalyzer
 from app.config.settings import settings
 from app.data.binance_provider import BinanceProvider
+from app.data.exceptions import DataProviderError
 from app.data.validator import DataValidator
 from app.decision.decision_engine import DecisionEngine
 from app.indicators.indicator_engine import IndicatorEngine
+from app.logging.logger import logger
 from app.web.charts import equity_chart
+
+
+_UNAVAILABLE_DASHBOARD_DATA = {
+    "price": 0,
+    "raw_signal": "N/A",
+    "signal": "N/A",
+    "score": 0,
+    "confidence": "N/A",
+    "balance": 0,
+    "win_rate": 0,
+    "profit_factor": 0,
+    "max_drawdown": 0,
+    "equity_chart": "",
+    "trades": [],
+}
 
 
 def load_dashboard_data():
 
     provider = BinanceProvider()
 
-    df = provider.fetch_ohlcv(
-        symbol=settings.symbol,
-        timeframe=settings.timeframe,
-        limit=settings.candle_limit,
-    )
+    try:
+
+        df = provider.fetch_ohlcv(
+            symbol=settings.symbol,
+            timeframe=settings.timeframe,
+            limit=settings.candle_limit,
+        )
+
+    except DataProviderError as e:
+
+        logger.error(f"Failed to fetch market data: {e}")
+
+        return dict(_UNAVAILABLE_DASHBOARD_DATA)
 
     if not DataValidator.validate(df):
 
-        return {
-            "price": 0,
-            "raw_signal": "N/A",
-            "signal": "N/A",
-            "score": 0,
-            "confidence": "N/A",
-            "balance": 0,
-            "win_rate": 0,
-            "profit_factor": 0,
-            "max_drawdown": 0,
-            "equity_chart": "",
-            "trades": [],
-        }
+        return dict(_UNAVAILABLE_DASHBOARD_DATA)
 
     df = IndicatorEngine.calculate_all(df)
 
