@@ -1,4 +1,5 @@
 from app.decision.decision_engine import DecisionEngine
+from app.indicators.indicator_engine import IndicatorEngine
 
 
 class MarketScanner:
@@ -23,6 +24,8 @@ class MarketScanner:
         decisions = {}
 
         for symbol, df in market_data.items():
+
+            df = IndicatorEngine.calculate_all(df)
 
             decision = self.decision_engine.evaluate(
                 df
