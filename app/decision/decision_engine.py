@@ -1,8 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
 from app.ai.score_engine import ScoreEngine
+from app.analytics.performance_db import PerformanceDatabase
+from app.analytics.strategy_stats import StrategyStats
+from app.analytics.weight_manager import WeightManager
 from app.config.settings import settings
 from app.core.enums import Signal
 from app.decision.signal_filter import SignalFilter
@@ -12,6 +15,8 @@ from app.market.regime import MarketRegime
 from app.market.regime_detector import MarketRegimeDetector
 from app.strategy.base_strategy import BaseStrategy
 from app.strategy.registry import get_strategy
+from app.voting.strategy_vote import StrategyVote
+from app.voting.voting_engine import VotingEngine
 
 
 @dataclass
@@ -29,6 +34,8 @@ class Decision:
 
     regime: str
 
+    contributing_strategies: list[str] = field(default_factory=list)
+
 
 class DecisionEngine:
 
@@ -37,9 +44,63 @@ class DecisionEngine:
         strategy: BaseStrategy | None = None,
     ):
 
+        self._explicit_strategy = strategy
+
         self.strategy = strategy or get_strategy(
             settings.strategy
         )
+
+    def _vote(
+        self,
+        df: pd.DataFrame,
+    ) -> tuple[Signal, list[str]]:
+        """
+        Runs every settings.voting_strategies entry against df, weights
+        each vote by that strategy's historical win rate (via
+        WeightManager, fed from LearningEngine's persisted stats), and
+        combines them with VotingEngine. Only strategies whose vote
+        matches the winning side get returned as contributing_strategies -
+        Backtester uses this to credit trade outcomes back to
+        LearningEngine only for the strategies that "won" the vote, not
+        every strategy that happened to vote BUY/SELL.
+        """
+
+        db = PerformanceDatabase.load()
+
+        votes = []
+        signals_by_strategy: dict[Signal, list[str]] = {}
+
+        for strategy_name in settings.voting_strategies:
+
+            strategy = get_strategy(strategy_name)
+
+            signal = strategy.generate_signal(df)
+
+            stats = StrategyStats.from_persisted(
+                db.get(strategy_name)
+            )
+
+            weight = WeightManager.weight(stats)
+
+            votes.append(
+                StrategyVote(
+                    strategy=strategy_name,
+                    signal=signal,
+                    weight=weight,
+                )
+            )
+
+            signals_by_strategy.setdefault(
+                signal, []
+            ).append(strategy_name)
+
+        combined_signal = VotingEngine.vote(votes)
+
+        contributing_strategies = signals_by_strategy.get(
+            combined_signal, []
+        )
+
+        return combined_signal, contributing_strategies
 
     def evaluate(
         self,
@@ -66,7 +127,18 @@ class DecisionEngine:
         # STRATEGY SIGNAL
         # ==================================================
 
-        raw_signal = self.strategy.generate_signal(df)
+        if (
+            settings.enable_voting
+            and self._explicit_strategy is None
+        ):
+
+            raw_signal, contributing_strategies = self._vote(df)
+
+        else:
+
+            raw_signal = self.strategy.generate_signal(df)
+
+            contributing_strategies = []
 
         # ==================================================
         # LEGACY SCORE
@@ -130,4 +202,5 @@ class DecisionEngine:
             confidence=confidence,
             reasons=reasons,
             regime=regime_value,
+            contributing_strategies=contributing_strategies,
         )

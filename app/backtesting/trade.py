@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from app.core.enums import OrderSide
@@ -34,6 +34,8 @@ class Trade:
     # NEW
     partial_tp_taken: bool = False
     remaining_quantity: float = 0.0
+
+    contributing_strategies: list[str] = field(default_factory=list)
 
     def __post_init__(self):
 

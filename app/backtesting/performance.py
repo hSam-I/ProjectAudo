@@ -1,3 +1,8 @@
+import pandas as pd
+
+from app.analytics.calmar_ratio import CalmarRatio
+from app.analytics.sharpe_ratio import SharpeRatio
+from app.analytics.sortino_ratio import SortinoRatio
 from app.backtesting.portfolio import Portfolio
 
 
@@ -170,3 +175,74 @@ class PerformanceAnalyzer:
             return 0
 
         return abs(min(drawdowns))
+
+    def _period_returns(self):
+
+        history = self.portfolio.balance_history
+
+        if len(history) < 2:
+            return []
+
+        returns = []
+
+        for i in range(1, len(history)):
+
+            previous = history[i - 1]
+
+            if previous == 0:
+                returns.append(0.0)
+                continue
+
+            returns.append(
+                (history[i] - previous) / previous
+            )
+
+        return returns
+
+    def sharpe_ratio(self):
+
+        return SharpeRatio.calculate(
+            self._period_returns()
+        )
+
+    def sortino_ratio(self):
+
+        return SortinoRatio.calculate(
+            self._period_returns()
+        )
+
+    def cagr(self):
+        """
+        Compound annual growth rate, derived from the first trade's
+        entry_time to the last closed trade's exit_time (not calendar
+        "now" - backtests run over historical windows).
+        """
+
+        if not self.closed_trades:
+            return 0.0
+
+        start_time = pd.to_datetime(self.portfolio.trades[0].entry_time)
+        end_time = pd.to_datetime(self.closed_trades[-1].exit_time)
+
+        days = (end_time - start_time).days
+
+        if days <= 0:
+            return 0.0
+
+        start_equity = self.portfolio.initial_balance
+        end_equity = self.portfolio.balance
+
+        if start_equity <= 0:
+            return 0.0
+
+        if end_equity <= 0:
+            return -1.0
+
+        return (end_equity / start_equity) ** (365 / days) - 1
+
+    def calmar_ratio(self):
+
+        return CalmarRatio.calculate(
+            annual_return=self.cagr() * 100,
+            max_drawdown=self.max_drawdown(),
+        )

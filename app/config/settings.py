@@ -46,6 +46,15 @@ class Settings(BaseSettings):
 
     max_open_positions: int = 5
 
+    enable_voting: bool = False
+
+    voting_strategies: list[str] = [
+        "ema_rsi",
+        "breakout",
+        "trend_following",
+        "mean_reversion",
+    ]
+
     # =====================================================
     # RISK
     # =====================================================
@@ -97,6 +106,16 @@ class Settings(BaseSettings):
     optimization_trials: int = 100
 
     optimization_metric: str = "profit_factor"
+
+    # =====================================================
+    # RESEARCH & WALK-FORWARD
+    # =====================================================
+
+    enable_research: bool = False
+
+    walk_forward_train_size: int = 250
+
+    walk_forward_test_size: int = 100
 
     # =====================================================
     # REPORTING

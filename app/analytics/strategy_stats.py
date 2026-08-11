@@ -35,3 +35,23 @@ class StrategyStats:
             return 0.0
 
         return self.losses / self.trades
+
+    @classmethod
+    def from_persisted(cls, data: dict | None) -> "StrategyStats":
+        """
+        Builds stats from a PerformanceDatabase entry (LearningEngine
+        persists {"wins": int, "losses": int}, not a StrategyStats
+        instance - this is the missing adapter between the two).
+        """
+
+        if not data:
+            return cls()
+
+        wins = data.get("wins", 0)
+        losses = data.get("losses", 0)
+
+        return cls(
+            trades=wins + losses,
+            wins=wins,
+            losses=losses,
+        )

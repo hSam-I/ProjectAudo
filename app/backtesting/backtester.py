@@ -1,3 +1,5 @@
+from app.analytics.learning_engine import LearningEngine
+
 from app.backtesting.portfolio import Portfolio
 from app.backtesting.trade import Trade
 
@@ -61,6 +63,24 @@ class Backtester:
         self.decision_engine = DecisionEngine(
             strategy=strategy,
         )
+
+    @staticmethod
+    def _register_learning(trade: Trade) -> None:
+        """
+        Credits a closed trade's outcome back to LearningEngine, but
+        only for the strategies that contributed to the winning side
+        of the vote that opened it (Trade.contributing_strategies is
+        only non-empty when voting produced this trade - see
+        DecisionEngine._vote). Losing-side voters are not penalized
+        for a trade whose direction they didn't pick.
+        """
+
+        for strategy_name in trade.contributing_strategies:
+
+            LearningEngine.register_trade(
+                strategy_name,
+                trade.profit,
+            )
 
     def run(
         self,
@@ -135,6 +155,8 @@ class Backtester:
                         current_trade
                     )
 
+                    self._register_learning(current_trade)
+
                     logger.info(
                         f"STOP LOSS @ {current_trade.stop_loss:.2f}"
                     )
@@ -154,6 +176,8 @@ class Backtester:
                     self.broker.close(
                         current_trade
                     )
+
+                    self._register_learning(current_trade)
 
                     logger.info(
                         f"TAKE PROFIT @ {current_trade.take_profit:.2f}"
@@ -216,6 +240,7 @@ class Backtester:
                     stop_loss=stop_loss,
                     take_profit=take_profit,
                     risk_amount=risk_amount,
+                    contributing_strategies=decision.contributing_strategies,
                 )
 
                 logger.info(
@@ -244,6 +269,8 @@ class Backtester:
                 self.broker.close(
                     current_trade
                 )
+
+                self._register_learning(current_trade)
 
                 logger.info(
                     f"SELL @ {entry_price:.2f}"

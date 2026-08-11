@@ -66,4 +66,109 @@ def test_expectancy():
     expectancy = analyzer.expectancy()
 
     assert expectancy > 0
-    
+
+
+def create_trade_with_times(profit: float, entry_time: str, exit_time: str):
+
+    trade = Trade(
+        symbol="BTCUSDT",
+        side="BUY",
+        entry_price=100,
+        quantity=1,
+        entry_time=entry_time,
+
+        stop_loss=95,
+        take_profit=110,
+        risk_amount=100,
+    )
+
+    trade.status = "CLOSED"
+    trade.profit = profit
+    trade.exit_time = exit_time
+
+    return trade
+
+
+def test_sharpe_ratio_uptrend_is_positive():
+
+    portfolio = Portfolio(10000)
+    portfolio.balance_history = [10000, 10100, 10250, 10400]
+
+    analyzer = PerformanceAnalyzer(portfolio)
+
+    assert analyzer.sharpe_ratio() > 0
+
+
+def test_sharpe_ratio_insufficient_history_returns_zero():
+
+    portfolio = Portfolio(10000)
+    portfolio.balance_history = [10000]
+
+    analyzer = PerformanceAnalyzer(portfolio)
+
+    assert analyzer.sharpe_ratio() == 0.0
+
+
+def test_sortino_ratio_no_downside_returns_zero():
+
+    portfolio = Portfolio(10000)
+    portfolio.balance_history = [10000, 10100, 10250, 10400]
+
+    analyzer = PerformanceAnalyzer(portfolio)
+
+    assert analyzer.sortino_ratio() == 0.0
+
+
+def test_cagr_doubling_over_one_year():
+
+    portfolio = Portfolio(10000)
+
+    trade = create_trade_with_times(10000, "2025-01-01", "2026-01-01")
+
+    portfolio.trades = [trade]
+    portfolio.closed_trades = [trade]
+    portfolio.balance = 20000
+
+    analyzer = PerformanceAnalyzer(portfolio)
+
+    assert analyzer.cagr() == 1.0
+
+
+def test_cagr_no_closed_trades_returns_zero():
+
+    portfolio = Portfolio(10000)
+
+    analyzer = PerformanceAnalyzer(portfolio)
+
+    assert analyzer.cagr() == 0.0
+
+
+def test_cagr_total_loss_returns_negative_one():
+
+    portfolio = Portfolio(10000)
+
+    trade = create_trade_with_times(-10000, "2025-01-01", "2026-01-01")
+
+    portfolio.trades = [trade]
+    portfolio.closed_trades = [trade]
+    portfolio.balance = 0
+
+    analyzer = PerformanceAnalyzer(portfolio)
+
+    assert analyzer.cagr() == -1.0
+
+
+def test_calmar_ratio_combines_cagr_and_drawdown():
+
+    portfolio = Portfolio(10000)
+
+    trade = create_trade_with_times(10000, "2025-01-01", "2026-01-01")
+
+    portfolio.trades = [trade]
+    portfolio.closed_trades = [trade]
+    portfolio.balance = 20000
+    portfolio.balance_history = [10000, 8000, 20000]
+
+    analyzer = PerformanceAnalyzer(portfolio)
+
+    assert analyzer.calmar_ratio() == 5.0
