@@ -9,6 +9,7 @@ from app.data.exceptions import DataProviderError
 from app.data.multi_data_provider import MultiDataProvider
 from app.data.validator import DataValidator
 from app.decision.decision_engine import DecisionEngine
+from app.execution.live_trader import LiveTrader
 from app.features.feature_engine import FeatureEngine
 from app.indicators.indicator_engine import IndicatorEngine
 from app.logging.logger import logger
@@ -426,6 +427,29 @@ def run_multi_position():
     print("=" * 70)
 
 
+def run_live_paper_trading():
+    """
+    Starts an indefinite live loop for settings.symbols[0].
+
+    Phase 1: OBSERVE ONLY - LiveTrader constructs no
+    Backtester/PaperBroker, so no trade is ever opened here. This will
+    grow paper-trading behavior in a later phase without changing this
+    entrypoint's shape.
+    """
+
+    symbol = settings.symbols[0]
+
+    trader = LiveTrader(symbol)
+
+    try:
+
+        trader.run_forever()
+
+    except KeyboardInterrupt:
+
+        logger.info(f"{symbol}: live observation stopped by user")
+
+
 if __name__ == "__main__":
 
     import argparse
@@ -450,6 +474,12 @@ if __name__ == "__main__":
         help="Run a multi-symbol backtest across settings.symbols sharing one portfolio's risk limits.",
     )
 
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Start an indefinite live loop for settings.symbols[0] (OBSERVE ONLY for now - no trades).",
+    )
+
     args = parser.parse_args()
 
     if args.walk_forward:
@@ -458,5 +488,7 @@ if __name__ == "__main__":
         run_scan()
     elif args.multi_position:
         run_multi_position()
+    elif args.live:
+        run_live_paper_trading()
     else:
         main()
