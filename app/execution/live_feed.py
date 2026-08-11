@@ -48,6 +48,16 @@ class LiveFeed:
     Polls BinanceProvider for one symbol's OHLCV on a timer aligned to
     a candle timeframe, and hands back only newly-closed candles -
     never the currently-forming one, and never the same candle twice.
+
+    No unbounded in-memory buffer here to cap: fetch_closed_candles()
+    re-fetches a fresh, bounded (candle_limit - 1 row) window from the
+    API on every poll rather than accumulating history across calls,
+    so this class's own memory footprint is already constant
+    regardless of how long the process runs. The only state that does
+    grow over a long run lives in Backtester.portfolio (trades/
+    balance_history, one entry per trade/close) - deliberately left
+    untouched here (see LiveTrader), and not a practical concern at
+    any realistic paper-trading horizon.
     """
 
     def __init__(

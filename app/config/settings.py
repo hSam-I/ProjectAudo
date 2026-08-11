@@ -127,6 +127,10 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    log_max_bytes: int = 5_000_000
+
+    log_backup_count: int = 5
+
     # =====================================================
     # SCHEDULER
     # =====================================================
@@ -140,6 +144,8 @@ class Settings(BaseSettings):
     live_poll_buffer_seconds: int = 10
 
     enable_live_paper_trading: bool = False
+
+    live_error_retry_seconds: int = 30
 
     # =====================================================
     # VALIDATORS

@@ -11,6 +11,17 @@ from app.core.enums import OrderSide
 from app.portfolio.portfolio_manager import PortfolioManager
 
 
+class LiveStateCorruptError(Exception):
+    """
+    Raised when live_state.json exists but cannot be parsed as JSON.
+    Deliberately never caught-and-ignored inside this module: silently
+    falling back to a fresh Portfolio would discard the live
+    paper-trading history without anyone noticing. Callers (see
+    LiveTrader.run_forever) let this propagate and stop the loop with
+    a clear error instead of a raw traceback or a silent data loss.
+    """
+
+
 class LiveStateStore:
     """
     Persists a live paper-trading Portfolio's balance/trades and the
@@ -64,7 +75,18 @@ class LiveStateStore:
             return None
 
         with open(cls.FILE, "r", encoding="utf-8") as file:
-            return json.load(file)
+
+            try:
+                return json.load(file)
+
+            except json.JSONDecodeError as e:
+
+                raise LiveStateCorruptError(
+                    f"{cls.FILE} exists but is not valid JSON "
+                    f"(a crash mid-write should be impossible - saves "
+                    f"are atomic - so this likely means the file was "
+                    f"edited or damaged externally): {e}"
+                ) from e
 
     @classmethod
     def restore_into(

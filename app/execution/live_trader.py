@@ -1,8 +1,10 @@
+import time
+
 from app.backtesting.backtester import Backtester
 from app.config.settings import settings
 from app.decision.decision_engine import DecisionEngine
 from app.execution.live_feed import LiveFeed
-from app.execution.live_state_store import LiveStateStore
+from app.execution.live_state_store import LiveStateCorruptError, LiveStateStore
 from app.indicators.indicator_engine import IndicatorEngine
 from app.logging.logger import logger
 
@@ -38,6 +40,16 @@ class LiveTrader:
         self.backtester: Backtester | None = None
 
     def run_forever(self) -> None:
+        """
+        Runs indefinitely. Each poll is wrapped so a transient failure
+        (network hiccup, exchange rate limit, ...) logs and retries
+        after a short pause instead of crashing a process meant to run
+        for weeks - except LiveStateCorruptError, which is NEVER
+        treated as transient (retrying can't fix a corrupt file, and
+        silently continuing on unreadable state could mean quietly
+        losing the paper-trading history), so it's left to propagate
+        and stop the loop with a clear error.
+        """
 
         if settings.enable_live_paper_trading:
 
@@ -57,7 +69,28 @@ class LiveTrader:
 
             self.feed.wait_for_next_candle()
 
-            self.poll_once()
+            try:
+
+                self.poll_once()
+
+            except LiveStateCorruptError:
+
+                logger.error(
+                    f"{self.symbol}: live state is corrupt, stopping "
+                    "(see error above) - fix or remove the state file "
+                    "and restart"
+                )
+
+                raise
+
+            except Exception as e:
+
+                logger.error(
+                    f"{self.symbol}: error during live poll, retrying "
+                    f"in {settings.live_error_retry_seconds}s: {e}"
+                )
+
+                time.sleep(settings.live_error_retry_seconds)
 
     def poll_once(self) -> None:
 

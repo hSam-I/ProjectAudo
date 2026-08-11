@@ -10,12 +10,21 @@ live-paper-trading work:
   signature), filled at a real-time ticker price rather than a
   candle's close, and that state is persisted/restored via
   LiveStateStore.
+- Phase 3: run_forever()'s per-iteration resilience - a transient
+  error is logged and retried after a short pause instead of crashing
+  the process, while LiveStateCorruptError is deliberately NEVER
+  treated as transient and is left to propagate and stop the loop.
 
-run_forever() is never called directly (infinite loop) - only
-poll_once() is exercised, driven by a fake LiveFeed that returns
-synthetic rows without any real polling/sleeping/network access.
+poll_once() is exercised directly in most tests, driven by a fake
+LiveFeed that returns synthetic rows without any real polling/
+sleeping/network access. The Phase 3 tests below DO call run_forever()
+directly, but always mock poll_once() to raise KeyboardInterrupt after
+a bounded number of iterations (BaseException, not caught by
+run_forever()'s `except Exception`) so the infinite loop terminates
+deterministically instead of hanging the test.
 """
 
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -24,8 +33,9 @@ import pytest
 from app.backtesting.portfolio import Portfolio
 from app.config.settings import settings
 from app.core.enums import Signal
+from app.data.exceptions import DataProviderError
 from app.decision.decision_engine import Decision, DecisionEngine
-from app.execution.live_state_store import LiveStateStore
+from app.execution.live_state_store import LiveStateCorruptError, LiveStateStore
 from app.execution.live_trader import LiveTrader
 
 
@@ -88,6 +98,9 @@ class FakeFeed:
 
     def mark_processed(self, timestamp):
         self.processed_timestamps.append(timestamp)
+
+    def wait_for_next_candle(self):
+        pass
 
 
 def _synthetic_df(n: int) -> pd.DataFrame:
@@ -387,6 +400,71 @@ def test_paper_trading_restores_state_on_first_step(tmp_path, monkeypatch):
 
     assert trader.backtester.portfolio.balance == 12345.0
     assert pd.Timestamp("2023-12-31 23:00:00") in feed.processed_timestamps
+
+
+def test_run_forever_retries_after_a_transient_error(monkeypatch):
+
+    monkeypatch.setattr(settings, "live_error_retry_seconds", 0)
+
+    sleep_calls = []
+    monkeypatch.setattr(time, "sleep", lambda s: sleep_calls.append(s))
+
+    closed = _synthetic_df(5)
+    feed = FakeFeed(closed, closed.iloc[-1:])
+
+    trader = LiveTrader("BTC/USDT", feed=feed)
+
+    calls = {"count": 0}
+
+    def fake_poll_once():
+
+        calls["count"] += 1
+
+        if calls["count"] == 1:
+            raise DataProviderError("simulated network blip")
+
+        # Stops the infinite loop deterministically: KeyboardInterrupt
+        # is a BaseException, not an Exception, so run_forever()'s
+        # `except Exception` does NOT catch it.
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(trader, "poll_once", fake_poll_once)
+
+    with pytest.raises(KeyboardInterrupt):
+        trader.run_forever()
+
+    assert calls["count"] == 2
+    assert sleep_calls == [0]
+
+
+def test_run_forever_stops_immediately_on_corrupt_state(monkeypatch):
+    """
+    Unlike a transient error, LiveStateCorruptError must never be
+    retried - retrying can't fix a corrupt file, and silently
+    continuing risks quietly losing the paper-trading history.
+    """
+
+    sleep_calls = []
+    monkeypatch.setattr(time, "sleep", lambda s: sleep_calls.append(s))
+
+    closed = _synthetic_df(5)
+    feed = FakeFeed(closed, closed.iloc[-1:])
+
+    trader = LiveTrader("BTC/USDT", feed=feed)
+
+    calls = {"count": 0}
+
+    def fake_poll_once():
+        calls["count"] += 1
+        raise LiveStateCorruptError("simulated corrupt live_state.json")
+
+    monkeypatch.setattr(trader, "poll_once", fake_poll_once)
+
+    with pytest.raises(LiveStateCorruptError):
+        trader.run_forever()
+
+    assert calls["count"] == 1
+    assert sleep_calls == []
 
 
 def test_live_execution_modules_never_reference_real_order_placement():

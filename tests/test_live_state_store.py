@@ -12,10 +12,12 @@ broker from the restored state.
 
 import os
 
+import pytest
+
 from app.backtesting.portfolio import Portfolio
 from app.backtesting.trade import Trade
 from app.core.enums import OrderSide
-from app.execution.live_state_store import LiveStateStore
+from app.execution.live_state_store import LiveStateCorruptError, LiveStateStore
 from app.portfolio.portfolio_manager import PortfolioManager
 
 
@@ -55,6 +57,35 @@ def test_restore_into_returns_none_when_no_saved_state(tmp_path, monkeypatch):
     result = LiveStateStore.restore_into(portfolio, portfolio_manager)
 
     assert result is None
+
+
+def test_load_raises_on_corrupt_json(tmp_path, monkeypatch):
+    """
+    Phase 3: a corrupt state file must never be silently discarded -
+    that would lose the paper-trading history without anyone noticing.
+    """
+
+    file = tmp_path / "live_state.json"
+    file.write_text("{this is not valid json", encoding="utf-8")
+
+    monkeypatch.setattr(LiveStateStore, "FILE", file)
+
+    with pytest.raises(LiveStateCorruptError):
+        LiveStateStore.load()
+
+
+def test_restore_into_propagates_corrupt_state_error(tmp_path, monkeypatch):
+
+    file = tmp_path / "live_state.json"
+    file.write_text("{this is not valid json", encoding="utf-8")
+
+    monkeypatch.setattr(LiveStateStore, "FILE", file)
+
+    portfolio = Portfolio(10000)
+    portfolio_manager = PortfolioManager()
+
+    with pytest.raises(LiveStateCorruptError):
+        LiveStateStore.restore_into(portfolio, portfolio_manager)
     assert portfolio.balance == 10000
 
 
