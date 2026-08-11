@@ -1,39 +1,150 @@
 import pandas as pd
 
+from app.logging.logger import logger
+
 
 class DataValidator:
+
+    REQUIRED_COLUMNS = (
+        "timestamp",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    )
+
+    # Enough rows for the slowest indicator used in strategy decisions
+    # (ema_slow=50) to warm up with a small buffer - not the full
+    # Ichimoku senkou-span lookback (78), which nothing in the
+    # decision path actually depends on.
+    MINIMUM_ROWS = 60
 
     @staticmethod
     def validate(df: pd.DataFrame) -> bool:
 
         if df.empty:
+
+            logger.warning(
+                "Market data validation failed: empty dataframe"
+            )
+
+            return False
+
+        missing_columns = [
+            column
+            for column in DataValidator.REQUIRED_COLUMNS
+            if column not in df.columns
+        ]
+
+        if missing_columns:
+
+            logger.warning(
+                "Market data validation failed: "
+                f"missing columns {missing_columns}"
+            )
+
             return False
 
         if df.isnull().sum().sum() > 0:
+
+            logger.warning(
+                "Market data validation failed: contains NaN values"
+            )
+
             return False
 
-        if not DataValidator._has_no_gaps(df):
+        if len(df) < DataValidator.MINIMUM_ROWS:
+
+            logger.warning(
+                "Market data validation failed: "
+                f"only {len(df)} candles, need at least "
+                f"{DataValidator.MINIMUM_ROWS} for indicators to warm up"
+            )
+
+            return False
+
+        if (df[["open", "high", "low", "close"]] <= 0).any().any():
+
+            logger.warning(
+                "Market data validation failed: non-positive OHLC prices"
+            )
+
+            return False
+
+        if (df["volume"] < 0).any():
+
+            logger.warning(
+                "Market data validation failed: negative volume"
+            )
+
+            return False
+
+        if (
+            df["high"]
+            < df[["open", "close"]].max(axis=1)
+        ).any():
+
+            logger.warning(
+                "Market data validation failed: "
+                "high is below open/close on at least one candle"
+            )
+
+            return False
+
+        if (
+            df["low"]
+            > df[["open", "close"]].min(axis=1)
+        ).any():
+
+            logger.warning(
+                "Market data validation failed: "
+                "low is above open/close on at least one candle"
+            )
+
+            return False
+
+        if df["timestamp"].duplicated().any():
+
+            logger.warning(
+                "Market data validation failed: duplicate candle timestamps"
+            )
+
+            return False
+
+        if not DataValidator._timestamps_are_evenly_spaced(
+            df["timestamp"]
+        ):
+
+            logger.warning(
+                "Market data validation failed: "
+                "gap detected in candle timestamps (missing candle)"
+            )
+
             return False
 
         return True
 
     @staticmethod
-    def _has_no_gaps(df: pd.DataFrame) -> bool:
-        """
-        Detects missing candles: every gap between consecutive
-        timestamps should match the series' own (modal) interval.
-        A gap that is e.g. 2x the normal interval means a candle
-        is missing from the exchange response.
-        """
+    def _timestamps_are_evenly_spaced(
+        timestamps: pd.Series,
+    ) -> bool:
 
-        if "timestamp" not in df.columns or len(df) < 3:
+        if len(timestamps) < 3:
             return True
 
-        gaps = df["timestamp"].diff().dropna()
+        deltas = (
+            timestamps
+            .sort_values()
+            .diff()
+            .dropna()
+        )
 
-        if gaps.empty:
+        median_delta = deltas.median()
+
+        if median_delta == pd.Timedelta(0):
             return True
 
-        expected_gap = gaps.mode().iloc[0]
-
-        return bool((gaps == expected_gap).all())
+        return bool(
+            (deltas <= median_delta * 1.5).all()
+        )

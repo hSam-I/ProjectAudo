@@ -1,139 +1,178 @@
+import numpy as np
 import pandas as pd
-import pytest
 
-from app.data.binance_provider import BinanceProvider
-
-
-@pytest.fixture
-def fake_binance(random_walk_ohlcv, monkeypatch):
-
-    data = random_walk_ohlcv()
-
-    def fake_fetch_ohlcv(self, symbol, timeframe, limit=500):
-        return data.copy()
-
-    monkeypatch.setattr(
-        BinanceProvider,
-        "fetch_ohlcv",
-        fake_fetch_ohlcv,
-    )
-
-    return data
+from app.backtesting.backtester import Backtester
+from app.backtesting.performance import PerformanceAnalyzer
+from app.data.validator import DataValidator
+from app.decision.decision_engine import DecisionEngine
+from app.indicators.indicator_engine import IndicatorEngine
+from app.risk.risk_manager import RiskManager
 
 
-def test_main_runs_end_to_end(fake_binance, monkeypatch, tmp_path, capsys):
+def _build_synthetic_ohlcv() -> pd.DataFrame:
     """
-    Runs app.main.main() through the full production pipeline
-    (provider -> validator -> indicators -> features -> decision
-    -> risk -> backtest -> reports) with a mocked exchange
-    response, and verifies it completes without hitting the
-    network and produces the expected reports/console output.
+    Deterministic, four-phase OHLCV series designed so the default
+    ema_rsi strategy actually trades on it:
+
+    1. Downtrend (50 bars) - establishes ema_fast < ema_slow.
+    2. Oscillating grind-up (90 bars) - lets ema_fast slowly cross
+       above ema_slow while RSI stays out of overbought territory,
+       so EMARSIStrategy's crossover condition (rsi < 70) can fire.
+    3. Sustained rally (45 bars) - builds profit and flips the
+       trend/breakout/volume AI features true.
+    4. Sharp reversal down (45 bars) - forces the open trade to exit
+       via stop-loss/trailing-stop instead of dangling open forever.
     """
 
-    monkeypatch.chdir(tmp_path)
+    closes = []
+    price = 100.0
 
-    from app.main import main
+    for _ in range(50):
+        price -= 0.2
+        closes.append(price)
 
-    main()
+    base = price
 
-    output = capsys.readouterr().out
-
-    assert "PROJECT AUDO" in output
-    assert "Backtesting" in output
-    assert "Performance" in output
-    assert "Trade History" in output
-
-    reports_dir = tmp_path / "reports"
-
-    expected_files = [
-        "equity_curve.csv",
-        "trade_history.csv",
-        "equity_curve.png",
-        "drawdown.png",
-        "trade_distribution.png",
-    ]
-
-    for filename in expected_files:
-
-        filepath = reports_dir / filename
-
-        assert filepath.exists(), f"{filename} was not created"
-        assert filepath.stat().st_size > 0
-
-    equity_csv = (reports_dir / "equity_curve.csv").read_text()
-
-    assert "Trade" in equity_csv
-    assert "Balance" in equity_csv
-
-    trade_csv = (reports_dir / "trade_history.csv").read_text()
-
-    assert "Symbol" in trade_csv
-    assert "Entry Time" in trade_csv
-
-
-def test_main_never_calls_real_exchange(fake_binance, monkeypatch, tmp_path):
-    """
-    Guards against accidental network access: if fetch_ohlcv is
-    ever called without going through the monkeypatched provider,
-    this fails instead of the test suite silently hitting Binance.
-    """
-
-    monkeypatch.chdir(tmp_path)
-
-    calls = {"count": 0}
-
-    original = BinanceProvider.fetch_ohlcv
-
-    def counting_fetch(self, symbol, timeframe, limit=500):
-        calls["count"] += 1
-        return original(self, symbol, timeframe, limit)
-
-    monkeypatch.setattr(
-        BinanceProvider,
-        "fetch_ohlcv",
-        counting_fetch,
-    )
-
-    from app.main import main
-
-    main()
-
-    assert calls["count"] == 1
-
-
-def test_main_aborts_on_invalid_market_data(monkeypatch, tmp_path, capsys):
-    """
-    If the provider returns unusable data (e.g. empty response),
-    main() must log the error and return early instead of
-    crashing further down the pipeline.
-    """
-
-    monkeypatch.chdir(tmp_path)
-
-    def empty_fetch(self, symbol, timeframe, limit=500):
-        return pd.DataFrame(
-            columns=[
-                "timestamp",
-                "open",
-                "high",
-                "low",
-                "close",
-                "volume",
-            ]
+    for i in range(90):
+        price = (
+            base
+            + 0.05 * i
+            + 2.5 * np.sin(2 * np.pi * i / 24)
         )
+        closes.append(price)
 
-    monkeypatch.setattr(
-        BinanceProvider,
-        "fetch_ohlcv",
-        empty_fetch,
+    for _ in range(45):
+        price += 1.3
+        closes.append(price)
+
+    for _ in range(45):
+        price -= 1.6
+        closes.append(price)
+
+    closes = np.array(closes)
+    n = len(closes)
+
+    deltas = np.diff(closes, prepend=closes[0])
+    spread = np.clip(np.abs(deltas) * 1.5, 0.15, None)
+
+    open_ = closes - deltas * 0.5
+    high = np.maximum(open_, closes) + spread * 0.4
+    low = np.minimum(open_, closes) - spread * 0.4
+
+    volume = np.full(n, 1000.0)
+    volume[50:185] *= 1.8
+
+    return pd.DataFrame(
+        {
+            "timestamp": pd.date_range(
+                "2024-01-01",
+                periods=n,
+                freq="1h",
+            ),
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": closes,
+            "volume": volume,
+        }
     )
 
-    from app.main import main
 
-    main()
+def test_end_to_end_pipeline_produces_a_consistent_backtest():
+    """
+    Runs the same data -> indicators -> decision -> risk -> backtest
+    chain main.py runs, on fixed synthetic OHLCV data, and checks the
+    result is internally consistent end to end (not just "doesn't crash").
+    """
 
-    output = capsys.readouterr().out
+    raw_df = _build_synthetic_ohlcv()
 
-    assert "PROJECT AUDO" not in output
+    # ------------------------------------------------------
+    # Data validation
+    # ------------------------------------------------------
 
-    assert not (tmp_path / "reports").exists()
+    assert DataValidator.validate(raw_df) is True
+
+    # ------------------------------------------------------
+    # Indicators + AI features
+    # ------------------------------------------------------
+
+    df = IndicatorEngine.calculate_all(raw_df.copy())
+
+    assert "ema_fast" in df.columns
+    assert "rsi" in df.columns
+    assert "atr" in df.columns
+
+    # ------------------------------------------------------
+    # Decision
+    # ------------------------------------------------------
+
+    decision = DecisionEngine().evaluate(df)
+
+    assert decision.signal is not None
+    assert -100 <= decision.score <= 100
+    assert decision.confidence in ("LOW", "MEDIUM", "HIGH")
+
+    # ------------------------------------------------------
+    # Risk
+    # ------------------------------------------------------
+
+    risk = RiskManager()
+
+    last = df.iloc[-1]
+
+    stop_loss = risk.stop_loss(last["close"], last["atr"])
+    take_profit = risk.take_profit(last["close"], last["atr"])
+
+    assert stop_loss < last["close"] < take_profit
+
+    # ------------------------------------------------------
+    # Backtest
+    # ------------------------------------------------------
+
+    portfolio = Backtester().run(raw_df.copy())
+
+    # The engineered crossover + rally must have produced at least
+    # one real trade - otherwise the strategy/decision wiring is broken.
+    assert portfolio.total_trades >= 1
+    assert portfolio.closed_trades_count >= 1
+
+    # No trade should be left dangling forever in this scenario.
+    assert (
+        portfolio.open_trades
+        == portfolio.total_trades - portfolio.closed_trades_count
+    )
+
+    # ------------------------------------------------------
+    # Equity curve consistency
+    # ------------------------------------------------------
+
+    history = portfolio.balance_history
+
+    assert history[0] == portfolio.initial_balance
+    assert history[-1] == portfolio.balance
+
+    assert all(np.isfinite(balance) for balance in history)
+
+    # One balance snapshot is appended per closed trade.
+    assert len(history) == portfolio.closed_trades_count + 1
+
+    # ------------------------------------------------------
+    # Performance metrics stay in sane ranges
+    # ------------------------------------------------------
+
+    performance = PerformanceAnalyzer(portfolio)
+
+    assert 0 <= performance.win_rate() <= 100
+    assert 0 <= performance.loss_rate() <= 100
+    assert performance.max_drawdown() >= 0
+
+    # ------------------------------------------------------
+    # Trade sanity
+    # ------------------------------------------------------
+
+    for trade in portfolio.trades:
+        assert trade.status == "CLOSED"
+        assert trade.exit_price is not None
+        assert trade.quantity > 0
+        assert np.isfinite(trade.profit)

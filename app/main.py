@@ -2,6 +2,7 @@ from app.backtesting.backtester import Backtester
 from app.backtesting.performance import PerformanceAnalyzer
 from app.config.settings import settings
 from app.data.binance_provider import BinanceProvider
+from app.data.exceptions import DataProviderError
 from app.data.validator import DataValidator
 from app.decision.decision_engine import DecisionEngine
 from app.features.feature_engine import FeatureEngine
@@ -23,11 +24,19 @@ def main():
 
     provider = BinanceProvider()
 
-    df = provider.fetch_ohlcv(
-        symbol=settings.symbols[0],
-        timeframe=settings.timeframe,
-        limit=settings.candle_limit,
-    )
+    try:
+
+        df = provider.fetch_ohlcv(
+            symbol=settings.symbols[0],
+            timeframe=settings.timeframe,
+            limit=settings.candle_limit,
+        )
+
+    except DataProviderError as e:
+
+        logger.error(f"Failed to fetch market data: {e}")
+
+        return
 
     if not DataValidator.validate(df):
         logger.error("Invalid market data")

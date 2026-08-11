@@ -1,17 +1,9 @@
 import ccxt
 import pandas as pd
 
+from app.data.exceptions import DataProviderError
 from app.data.provider import DataProvider
 from app.logging.logger import logger
-
-OHLCV_COLUMNS = [
-    "timestamp",
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-]
 
 
 class BinanceProvider(DataProvider):
@@ -28,13 +20,6 @@ class BinanceProvider(DataProvider):
         timeframe: str,
         limit: int = 500,
     ) -> pd.DataFrame:
-        """
-        Fetches OHLCV candles from Binance.
-
-        Returns an empty DataFrame (instead of raising) on any
-        network/exchange failure, so DataValidator can reject it
-        the same way it rejects any other unusable response.
-        """
 
         try:
 
@@ -47,38 +32,46 @@ class BinanceProvider(DataProvider):
         except ccxt.RateLimitExceeded as e:
 
             logger.error(
-                f"Binance rate limit exceeded for {symbol}: {e}"
+                f"Binance rate limit exceeded fetching "
+                f"{symbol} {timeframe}: {e}"
             )
 
-            return pd.DataFrame(columns=OHLCV_COLUMNS)
+            raise DataProviderError(
+                f"Rate limit exceeded fetching {symbol}: {e}"
+            ) from e
 
         except ccxt.NetworkError as e:
 
             logger.error(
-                f"Network error fetching {symbol} from Binance: {e}"
+                f"Network error fetching {symbol} {timeframe} "
+                f"from Binance: {e}"
             )
 
-            return pd.DataFrame(columns=OHLCV_COLUMNS)
+            raise DataProviderError(
+                f"Network error fetching {symbol}: {e}"
+            ) from e
 
         except ccxt.ExchangeError as e:
 
             logger.error(
-                f"Exchange error fetching {symbol} from Binance: {e}"
+                f"Binance rejected the request for "
+                f"{symbol} {timeframe}: {e}"
             )
 
-            return pd.DataFrame(columns=OHLCV_COLUMNS)
-
-        if not ohlcv:
-
-            logger.warning(
-                f"Binance returned no candles for {symbol}"
-            )
-
-            return pd.DataFrame(columns=OHLCV_COLUMNS)
+            raise DataProviderError(
+                f"Exchange error fetching {symbol}: {e}"
+            ) from e
 
         df = pd.DataFrame(
             ohlcv,
-            columns=OHLCV_COLUMNS,
+            columns=[
+                "timestamp",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+            ],
         )
 
         df["timestamp"] = pd.to_datetime(

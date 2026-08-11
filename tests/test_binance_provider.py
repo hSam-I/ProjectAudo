@@ -1,23 +1,31 @@
 import ccxt
 import pandas as pd
+import pytest
 
 from app.data.binance_provider import BinanceProvider
-
-SAMPLE = [
-    [1704067200000, 100, 105, 95, 102, 10],
-    [1704070800000, 102, 106, 101, 104, 12],
-]
+from app.data.exceptions import DataProviderError
 
 
-def test_fetch_ohlcv_returns_dataframe():
+def test_fetch_ohlcv_returns_dataframe(monkeypatch):
 
     provider = BinanceProvider()
 
-    provider.exchange.fetch_ohlcv = (
-        lambda symbol, timeframe, limit: SAMPLE
+    raw = [
+        [1704067200000, 100.0, 101.0, 99.0, 100.5, 1000.0],
+        [1704070800000, 100.5, 102.0, 100.0, 101.5, 1200.0],
+    ]
+
+    monkeypatch.setattr(
+        provider.exchange,
+        "fetch_ohlcv",
+        lambda *args, **kwargs: raw,
     )
 
-    df = provider.fetch_ohlcv("BTC/USDT", "1h", limit=2)
+    df = provider.fetch_ohlcv(
+        symbol="BTC/USDT",
+        timeframe="1h",
+        limit=2,
+    )
 
     assert list(df.columns) == [
         "timestamp",
@@ -27,7 +35,6 @@ def test_fetch_ohlcv_returns_dataframe():
         "close",
         "volume",
     ]
-
     assert len(df) == 2
     assert pd.api.types.is_datetime64_any_dtype(df["timestamp"])
 
@@ -35,7 +42,8 @@ def test_fetch_ohlcv_returns_dataframe():
 def test_provider_enables_rate_limiting():
     """
     ccxt's built-in throttling avoids tripping Binance's rate
-    limit in the first place.
+    limit in the first place, on top of catching it when it
+    still happens.
     """
 
     provider = BinanceProvider()
@@ -43,64 +51,33 @@ def test_provider_enables_rate_limiting():
     assert provider.exchange.enableRateLimit is True
 
 
-def test_fetch_ohlcv_handles_empty_response():
+@pytest.mark.parametrize(
+    "raised",
+    [
+        ccxt.RateLimitExceeded("binance rate limit exceeded"),
+        ccxt.RequestTimeout("request timed out"),
+        ccxt.ExchangeNotAvailable("exchange under maintenance"),
+        ccxt.BadSymbol("bad symbol XYZ/ABC"),
+        ccxt.ExchangeError("generic exchange error"),
+    ],
+)
+def test_fetch_ohlcv_wraps_ccxt_errors(monkeypatch, raised):
 
     provider = BinanceProvider()
 
-    provider.exchange.fetch_ohlcv = (
-        lambda symbol, timeframe, limit: []
+    def _raise(*args, **kwargs):
+        raise raised
+
+    monkeypatch.setattr(
+        provider.exchange,
+        "fetch_ohlcv",
+        _raise,
     )
 
-    df = provider.fetch_ohlcv("BTC/USDT", "1h")
+    with pytest.raises(DataProviderError):
 
-    assert df.empty
-    assert list(df.columns) == [
-        "timestamp",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-    ]
-
-
-def test_fetch_ohlcv_handles_rate_limit_error():
-
-    provider = BinanceProvider()
-
-    def raise_rate_limit(symbol, timeframe, limit):
-        raise ccxt.RateLimitExceeded("too many requests")
-
-    provider.exchange.fetch_ohlcv = raise_rate_limit
-
-    df = provider.fetch_ohlcv("BTC/USDT", "1h")
-
-    assert df.empty
-
-
-def test_fetch_ohlcv_handles_network_error():
-
-    provider = BinanceProvider()
-
-    def raise_network_error(symbol, timeframe, limit):
-        raise ccxt.NetworkError("connection reset")
-
-    provider.exchange.fetch_ohlcv = raise_network_error
-
-    df = provider.fetch_ohlcv("BTC/USDT", "1h")
-
-    assert df.empty
-
-
-def test_fetch_ohlcv_handles_exchange_error():
-
-    provider = BinanceProvider()
-
-    def raise_exchange_error(symbol, timeframe, limit):
-        raise ccxt.ExchangeError("invalid symbol")
-
-    provider.exchange.fetch_ohlcv = raise_exchange_error
-
-    df = provider.fetch_ohlcv("BTC/USDT", "1h")
-
-    assert df.empty
+        provider.fetch_ohlcv(
+            symbol="BTC/USDT",
+            timeframe="1h",
+            limit=500,
+        )
