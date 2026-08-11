@@ -46,6 +46,8 @@ class Settings(BaseSettings):
 
     max_open_positions: int = 5
 
+    enable_multi_position: bool = False
+
     enable_voting: bool = False
 
     voting_strategies: list[str] = [

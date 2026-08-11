@@ -10,11 +10,15 @@ from app.config.settings import settings
 from app.core.enums import OrderSide
 from app.core.enums import Signal
 
+from app.data.validator import DataValidator
+
 from app.decision.decision_engine import DecisionEngine
 
 from app.indicators.indicator_engine import IndicatorEngine
 
 from app.logging.logger import logger
+
+from app.portfolio.portfolio_manager import PortfolioManager
 
 from app.risk.portfolio_risk_manager import PortfolioRiskManager
 from app.risk.position_manager import PositionManager
@@ -52,6 +56,8 @@ class Backtester:
             settings.starting_balance
         )
 
+        self.portfolio_manager = PortfolioManager()
+
         self.broker = PaperBroker(
             self.portfolio,
             fee_rate=settings.commission,
@@ -84,8 +90,24 @@ class Backtester:
 
     def run(
         self,
-        df,
+        data,
     ):
+        """
+        - data: a single symbol's DataFrame -> classic single-symbol
+          backtest against settings.symbols[0] (unchanged behavior).
+        - data: dict[symbol, DataFrame] -> multi-position backtest
+          across all given symbols, sharing this Backtester's balance
+          and risk limits. Requires settings.enable_multi_position=True
+          (raises otherwise) - this is a deliberate opt-in safety rail,
+          not a capability check.
+        """
+
+        if isinstance(data, dict):
+            return self._run_multi(data)
+
+        return self._run_single(data)
+
+    def _run_single(self, df):
 
         # --------------------------------------------------
         # Build indicators + AI features
@@ -93,189 +115,319 @@ class Backtester:
 
         df = IndicatorEngine.calculate_all(df)
 
-        current_trade = None
+        symbol = settings.symbols[0]
 
         for i in range(
             settings.warmup_candles,
             len(df) - 1,
         ):
 
-            history = df.iloc[: i + 1]
-
-            decision = self.decision_engine.evaluate(
-                history
+            self._step(
+                symbol,
+                history=df.iloc[: i + 1],
+                execution=df.iloc[i + 1],
             )
 
-            signal = decision.signal
+        return self.portfolio
 
-            execution = df.iloc[i + 1]
+    def _run_multi(self, market_data: dict):
 
-            entry_price = execution["open"]
+        if not settings.enable_multi_position:
 
-            current_price = execution["close"]
-
-            current_high = execution["high"]
-
-            current_low = execution["low"]
-
-            atr = history.iloc[-1]["atr"]
-
-            entry_time = str(
-                execution["timestamp"]
+            raise ValueError(
+                "Backtester.run() received multiple symbols but "
+                "settings.enable_multi_position is False. Enable it "
+                "explicitly to run a multi-position backtest."
             )
 
-            logger.info(
-                f"{entry_time} | "
-                f"RAW={decision.raw_signal} | "
-                f"FINAL={decision.signal} | "
-                f"SCORE={decision.score}"
+        prepared = {}
+
+        for symbol, df in market_data.items():
+
+            # Validate the RAW candles first, same as main.py's
+            # single-symbol flow - IndicatorEngine.calculate_all()
+            # introduces NaN warmup rows that would always fail
+            # DataValidator's NaN check if validated afterward.
+            if not DataValidator.validate(df):
+
+                logger.warning(
+                    f"{symbol}: invalid market data, skipping in "
+                    "multi-position backtest"
+                )
+
+                continue
+
+            prepared[symbol] = IndicatorEngine.calculate_all(df)
+
+        if not prepared:
+
+            logger.warning(
+                "No valid symbols remaining for multi-position backtest"
             )
 
-            # --------------------------------------------------
-            # Manage existing trade
-            # --------------------------------------------------
+            return self.portfolio
 
-            if current_trade is not None:
+        aligned = self._align_timestamps(prepared)
 
-                PositionManager.update(
-                    trade=current_trade,
-                    current_price=current_price,
-                    atr=atr,
+        length = min(len(df) for df in aligned.values())
+
+        for i in range(
+            settings.warmup_candles,
+            length - 1,
+        ):
+
+            for symbol, df in aligned.items():
+
+                self._step(
+                    symbol,
+                    history=df.iloc[: i + 1],
+                    execution=df.iloc[i + 1],
                 )
 
-                if current_low <= current_trade.stop_loss:
+        return self.portfolio
 
-                    current_trade.close(
-                        exit_price=current_trade.stop_loss,
-                        exit_time=entry_time,
-                        reason="STOP_LOSS",
-                    )
+    @staticmethod
+    def _align_timestamps(market_data: dict) -> dict:
+        """
+        Restricts every symbol's dataframe to the intersection of their
+        timestamps, so the shared candle-by-candle loop always compares
+        the same wall-clock bar across symbols. Indicators are computed
+        on each symbol's full, unaligned series beforehand (by
+        _run_multi) so warmup stays correct even though this can still
+        leave internal gaps for a symbol that lost middle candles here.
+        Every symbol's drop count is logged - never silent.
+        """
 
-                    self.broker.close(
-                        current_trade
-                    )
+        common = None
 
-                    self._register_learning(current_trade)
+        for df in market_data.values():
 
-                    logger.info(
-                        f"STOP LOSS @ {current_trade.stop_loss:.2f}"
-                    )
+            timestamps = set(df["timestamp"])
 
-                    current_trade = None
+            common = (
+                timestamps
+                if common is None
+                else common & timestamps
+            )
 
-                    continue
+        aligned = {}
 
-                if current_high >= current_trade.take_profit:
+        for symbol, df in market_data.items():
 
-                    current_trade.close(
-                        exit_price=current_trade.take_profit,
-                        exit_time=entry_time,
-                        reason="TAKE_PROFIT",
-                    )
+            aligned_df = (
+                df[df["timestamp"].isin(common)]
+                .sort_values("timestamp")
+                .reset_index(drop=True)
+            )
 
-                    self.broker.close(
-                        current_trade
-                    )
+            dropped = len(df) - len(aligned_df)
 
-                    self._register_learning(current_trade)
+            if dropped > 0:
 
-                    logger.info(
-                        f"TAKE PROFIT @ {current_trade.take_profit:.2f}"
-                    )
-
-                    current_trade = None
-
-                    continue
-
-            # --------------------------------------------------
-            # BUY
-            # --------------------------------------------------
-
-            if (
-                signal == Signal.BUY
-                and current_trade is None
-                and PortfolioRiskManager.can_open_position(
-                    self.portfolio
-                )
-            ):
-
-                risk_amount = self.risk_manager.risk_amount(
-                    self.portfolio.balance
+                logger.warning(
+                    f"{symbol}: {dropped} candles dropped outside the "
+                    "timestamp intersection (multi-symbol alignment)"
                 )
 
-                if not PortfolioRiskManager.can_take_risk(
-                    self.portfolio,
-                    risk_amount,
-                ):
-                    continue
+            aligned[symbol] = aligned_df
 
-                stop_loss = self.risk_manager.stop_loss(
-                    entry_price,
-                    atr,
-                )
+        return aligned
 
-                take_profit = self.risk_manager.take_profit(
-                    entry_price,
-                    atr,
-                )
+    def _step(
+        self,
+        symbol: str,
+        history,
+        execution,
+    ) -> None:
+        """
+        Evaluates and acts on a single symbol's single candle step -
+        the shared body for both single- and multi-position runs.
+        """
 
-                stop_loss_distance = (
-                    self.risk_manager.stop_loss_distance(
-                        atr
-                    )
-                )
+        decision = self.decision_engine.evaluate(
+            history
+        )
 
-                quantity = PositionSizer.calculate_position_size(
-                    balance=self.portfolio.balance,
-                    risk_amount=risk_amount,
-                    stop_loss_distance=stop_loss_distance,
-                )
+        signal = decision.signal
 
-                current_trade = Trade(
-                    symbol=settings.symbols[0],
-                    side=OrderSide.BUY,
-                    entry_price=entry_price,
-                    quantity=quantity,
-                    entry_time=entry_time,
-                    stop_loss=stop_loss,
-                    take_profit=take_profit,
-                    risk_amount=risk_amount,
-                    contributing_strategies=decision.contributing_strategies,
-                )
+        entry_price = execution["open"]
 
-                logger.info(
-                    f"BUY OPENED @ {entry_price:.2f}"
-                )
+        current_price = execution["close"]
 
-                self.broker.buy(
-                    current_trade
-                )
+        current_high = execution["high"]
 
-            # --------------------------------------------------
-            # SELL
-            # --------------------------------------------------
+        current_low = execution["low"]
 
-            elif (
-                signal == Signal.SELL
-                and current_trade is not None
-            ):
+        atr = history.iloc[-1]["atr"]
+
+        entry_time = str(
+            execution["timestamp"]
+        )
+
+        logger.info(
+            f"{symbol} | {entry_time} | "
+            f"RAW={decision.raw_signal} | "
+            f"FINAL={decision.signal} | "
+            f"SCORE={decision.score}"
+        )
+
+        current_trade = self.portfolio_manager.get_position(
+            symbol
+        )
+
+        # --------------------------------------------------
+        # Manage existing trade
+        # --------------------------------------------------
+
+        if current_trade is not None:
+
+            PositionManager.update(
+                trade=current_trade,
+                current_price=current_price,
+                atr=atr,
+            )
+
+            if current_low <= current_trade.stop_loss:
 
                 current_trade.close(
-                    exit_price=entry_price,
+                    exit_price=current_trade.stop_loss,
                     exit_time=entry_time,
-                    reason="SIGNAL",
+                    reason="STOP_LOSS",
                 )
 
                 self.broker.close(
                     current_trade
                 )
 
+                self.portfolio_manager.close_trade(
+                    current_trade
+                )
+
                 self._register_learning(current_trade)
 
                 logger.info(
-                    f"SELL @ {entry_price:.2f}"
+                    f"{symbol} | STOP LOSS @ {current_trade.stop_loss:.2f}"
                 )
 
-                current_trade = None
+                return
 
-        return self.portfolio
+            if current_high >= current_trade.take_profit:
+
+                current_trade.close(
+                    exit_price=current_trade.take_profit,
+                    exit_time=entry_time,
+                    reason="TAKE_PROFIT",
+                )
+
+                self.broker.close(
+                    current_trade
+                )
+
+                self.portfolio_manager.close_trade(
+                    current_trade
+                )
+
+                self._register_learning(current_trade)
+
+                logger.info(
+                    f"{symbol} | TAKE PROFIT @ {current_trade.take_profit:.2f}"
+                )
+
+                return
+
+        # --------------------------------------------------
+        # BUY
+        # --------------------------------------------------
+
+        if (
+            signal == Signal.BUY
+            and self.portfolio_manager.can_open_trade(symbol)
+            and PortfolioRiskManager.can_open_position(
+                self.portfolio
+            )
+        ):
+
+            risk_amount = self.risk_manager.risk_amount(
+                self.portfolio.balance
+            )
+
+            if not PortfolioRiskManager.can_take_risk(
+                self.portfolio,
+                risk_amount,
+            ):
+                return
+
+            stop_loss = self.risk_manager.stop_loss(
+                entry_price,
+                atr,
+            )
+
+            take_profit = self.risk_manager.take_profit(
+                entry_price,
+                atr,
+            )
+
+            stop_loss_distance = (
+                self.risk_manager.stop_loss_distance(
+                    atr
+                )
+            )
+
+            quantity = PositionSizer.calculate_position_size(
+                balance=self.portfolio.balance,
+                risk_amount=risk_amount,
+                stop_loss_distance=stop_loss_distance,
+            )
+
+            new_trade = Trade(
+                symbol=symbol,
+                side=OrderSide.BUY,
+                entry_price=entry_price,
+                quantity=quantity,
+                entry_time=entry_time,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                risk_amount=risk_amount,
+                contributing_strategies=decision.contributing_strategies,
+            )
+
+            logger.info(
+                f"{symbol} | BUY OPENED @ {entry_price:.2f}"
+            )
+
+            self.broker.buy(
+                new_trade
+            )
+
+            self.portfolio_manager.register_trade(
+                new_trade
+            )
+
+        # --------------------------------------------------
+        # SELL
+        # --------------------------------------------------
+
+        elif (
+            signal == Signal.SELL
+            and current_trade is not None
+        ):
+
+            current_trade.close(
+                exit_price=entry_price,
+                exit_time=entry_time,
+                reason="SIGNAL",
+            )
+
+            self.broker.close(
+                current_trade
+            )
+
+            self.portfolio_manager.close_trade(
+                current_trade
+            )
+
+            self._register_learning(current_trade)
+
+            logger.info(
+                f"{symbol} | SELL @ {entry_price:.2f}"
+            )
