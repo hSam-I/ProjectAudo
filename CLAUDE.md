@@ -50,7 +50,9 @@ her sembol için `IndicatorEngine.calculate_all(df)` sonra `DecisionEngine.evalu
 
 Ana pipeline'a bağlı olanlar:
 - `data/` — `BinanceProvider` (ccxt), `MultiDataProvider`, `DataValidator`, `models.py`,
-  `exceptions.py` (`DataProviderError`, 2026-08-11 eklendi, bkz. "İkinci tur" madde 6)
+  `exceptions.py` (`DataProviderError`, 2026-08-11 eklendi, bkz. "İkinci tur" madde 6).
+  `BinanceProvider` artık ccxt'nin kendi rate-limit throttling'ini de açıyor
+  (bkz. "Üçüncü tur" madde 9).
 - `indicators/` — EMA/RSI/ATR/MACD/ADX/Bollinger/VWAP/OBV/CCI/Ichimoku/Stochastic +
   `IndicatorEngine` (merkezi orkestratör)
 - `features/` — `FeatureEngine` (trend/momentum/volatility/volume/pattern/market
@@ -75,11 +77,13 @@ Ana pipeline'a bağlı olanlar:
 - `broker/` — `PaperBroker` -> `ExecutionEngine` (`fee_model.py` + `slippage_model.py`
   gerçekten uygulanıyor, her buy/sell'de fee bakiyeden düşülüyor ve fiyata slippage
   ekleniyor/çıkarılıyor). `Backtester` bu oranları `settings.commission`/`settings.slippage`'dan
-  besliyor (2026-08-11'de düzeltildi, bkz. aşağı).
+  besliyor (2026-08-11'de düzeltildi, bkz. aşağı). Çıkışta (sell) slippage'in
+  `trade.profit`'e yansımaması ayrı bir bug'dı, ayrıca düzeltildi (bkz. "Üçüncü tur" madde 7).
 - `reporting/` — main.py'nin çağırdığı `TradeJournal`, `EquityReport`, `EquityChart`,
   `DrawdownChart`, `TradeDistributionChart`. Diğer dosyalar (`performance.py`,
   `performance_report.py`, `profit_factor.py`, `expectancy.py`, `average_trade.py`,
-  `report_builder.py`) kullanılmıyor.
+  `report_builder.py`) kullanılmıyor. `TradeDistributionChart` sıfır trade'de çöküyordu,
+  düzeltildi (bkz. "Üçüncü tur" madde 8).
 - `web/` — FastAPI dashboard (`server.py`, `dashboard_data.py`, `charts.py`)
 - `config/` — `pydantic-settings` tabanlı `Settings` (`.env`'den okur)
 - `core/` — `enums.py` (Signal/OrderSide/PositionSide/OrderType/OrderStatus),
@@ -168,6 +172,15 @@ dışında bırakıldı.
 
 `tests/test_backtester_costs.py` (2026-08-11 eklendi) — bkz. "İkinci tur" madde 5.
 
+`tests/test_main_integration.py` (2026-08-11 eklendi, "Üçüncü tur" madde 10)
+`tests/test_end_to_end.py`'den FARKLI bir şey test ediyor: o dosya pipeline
+bileşenlerini (`DataValidator`/`IndicatorEngine`/`DecisionEngine`/`Backtester`) doğrudan
+çağırıyor, gerçek `app.main.main()`'i hiç çalıştırmıyor. Bu dosya `main()`'i sahte
+(monkeypatch'li) `BinanceProvider` ile uçtan uca çalıştırıp ağa çıkmadığını, 5 rapor
+dosyasının (equity_curve.csv/png, trade_history.csv, drawdown.png, trade_distribution.png)
+diskte gerçekten oluştuğunu ve geçersiz veri durumunda erken/temiz çıkıldığını doğruluyor —
+main.py'nin dosya I/O ve network tarafını başka hiçbir test kapsamıyordu.
+
 ## İkinci tur: çekirdek güçlendirme (2026-08-11)
 
 Yetim modülleri entegre etmeden önce ana pipeline'ı sağlamlaştırma çalışması.
@@ -215,6 +228,47 @@ Yetim modülleri entegre etmeden önce ana pipeline'ı sağlamlaştırma çalı�
    Testler: `tests/test_data_validator.py` (11 test, her red sebebi ayrı), `tests/test_binance_provider.py`
    (başarılı fetch + 5 farklı ccxt hata tipinin `DataProviderError`'a sarıldığını doğruluyor).
    Tüm suite: 171 passed.
+
+## Üçüncü tur: paralel geçiş + merge (2026-08-11)
+
+Bu tur, `origin/main`'i hiç `pull` etmemiş AYRI bir local checkout'ta, "İkinci tur"daki
+(madde 5-6) 4 maddenin AYNISINI bilmeden bağımsız olarak baştan çözmeye çalışırken ortaya
+çıktı. `git push` `! [rejected] (fetch first)` verince fark edildi. `git fetch` + `git merge
+origin/main` ile elle çözüldü: madde 5-6'nın (`DataValidator`/`BinanceProvider`/e2e/walk-forward/
+cost testleri) origin versiyonu daha kapsamlı olduğu için o taraf kanonik kabul edildi, bu
+geçişten SADECE origin'de hiç olmayan gerçek bug fix'leri (madde 7-9) ve tamamlayıcı bir test
+(madde 10) korundu. **Ders:** yeni bir oturuma başlamadan `git fetch && git log main..origin/main`
+ile local'in origin'in gerisinde olup olmadığı kontrol edilmeli — yoksa aynı işin iki kez
+yapılması riski var.
+
+7. ✅ **DÜZELTİLDİ** — çıkışta (sell) slippage `trade.profit`'e hiç yansımıyordu.
+   `Backtester.run()` sırası: önce `current_trade.close(exit_price=...)` (kârı bu fiyattan
+   hesaplar), sonra `self.broker.close()` -> `ExecutionEngine.execute_sell()`. `execute_sell()`
+   `slippage_model.sell_price()` ile `trade.exit_price`'ı güncelliyordu ama `trade.profit`'i
+   YENİDEN HESAPLAMIYORDU — gösterilen exit_price ile kullanılan kâr tutarsızdı, çıkış
+   slippage'i bakiyeye hiç yansımıyordu (sadece fee yansıyordu). Ampirik kanıt: %1 slippage,
+   sıfır fee, giriş 100/çıkış 110 senaryosunda beklenen bakiye 10007.90 iken gerçek sonuç
+   10009.00 çıktı (slippage'siz kâr).
+   Fix: `Trade.close()`'daki kâr hesaplama `Trade.recalculate_profit()` adlı ayrı bir metoda
+   çıkarıldı; `ExecutionEngine.execute_sell()` artık `trade.exit_price`'ı güncelledikten SONRA
+   `trade.recalculate_profit()` çağırıyor. `tests/test_execution_engine.py`'e regresyon
+   testleri eklendi (fee'nin bakiyeyi tam doğru miktarda düşürdüğünü, slippage'in hem fiyata
+   hem kâra doğru yansıdığını sayısal olarak doğruluyor).
+8. ✅ **DÜZELTİLDİ** — `TradeDistributionChart.export()` sıfır trade'li bir backtest'te
+   çöküyordu. `plt.pie([wins, losses])` wins=losses=0 iken (0/0) matplotlib içinde NaN açı
+   üretip `ValueError: cannot convert float NaN to integer` fırlatıyordu — yani main.py hiç
+   trade açmayan bir çalıştırmadan sonra rapor aşamasında çöküyordu (madde "İkinci tur"daki
+   `test_ema_rsi_walk_forward.py` bulgusu — çoğu pencerede 0 trade — bunun main.py'de tam
+   olarak nasıl kırılacağını gösteriyor).
+   Fix: wins==0 ve losses==0 olduğunda pasta yerine "No trades" metni çizilip dosyaya
+   kaydediliyor. `tests/test_trade_distribution_chart.py`'e regresyon testi eklendi.
+9. `BinanceProvider.__init__` artık `ccxt.binance({"enableRateLimit": True})` ile ccxt'nin
+   kendi throttling'ini açıyor — madde 6'daki `DataProviderError` yakala-ve-fırlat mekanizmasının
+   ÜZERİNE eklendi (rate limit'e hiç çarpmama ihtimalini artırır; çarparsa madde 6 zaten yakalar).
+   `tests/test_binance_provider.py`'e `test_provider_enables_rate_limiting` eklendi.
+10. `tests/test_main_integration.py` eklendi — bkz. "Test durumu" bölümü.
+
+Tüm suite bu turdan sonra: 178 passed.
 
 ## Bilinen sorunlar
 
