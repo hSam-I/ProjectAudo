@@ -431,10 +431,14 @@ def run_live_paper_trading():
     """
     Starts an indefinite live loop for settings.symbols[0].
 
-    Phase 1: OBSERVE ONLY - LiveTrader constructs no
-    Backtester/PaperBroker, so no trade is ever opened here. This will
-    grow paper-trading behavior in a later phase without changing this
-    entrypoint's shape.
+    settings.enable_live_paper_trading controls what LiveTrader
+    actually does (see its docstring) - default False means OBSERVE
+    ONLY (no Backtester/PaperBroker is ever touched); True engages
+    real paper trading through Backtester._step(). Deliberately NOT
+    auto-enabled by this entrypoint the way --multi-position
+    auto-enables its own flag - opening (paper) positions is high
+    enough stakes that it requires an explicit settings/.env opt-in on
+    top of `--live`, not just the CLI flag alone.
     """
 
     symbol = settings.symbols[0]
@@ -447,7 +451,7 @@ def run_live_paper_trading():
 
     except KeyboardInterrupt:
 
-        logger.info(f"{symbol}: live observation stopped by user")
+        logger.info(f"{symbol}: live loop stopped by user")
 
 
 if __name__ == "__main__":

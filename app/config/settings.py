@@ -139,6 +139,8 @@ class Settings(BaseSettings):
 
     live_poll_buffer_seconds: int = 10
 
+    enable_live_paper_trading: bool = False
+
     # =====================================================
     # VALIDATORS
     # =====================================================

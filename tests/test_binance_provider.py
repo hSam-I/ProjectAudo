@@ -81,3 +81,46 @@ def test_fetch_ohlcv_wraps_ccxt_errors(monkeypatch, raised):
             timeframe="1h",
             limit=500,
         )
+
+
+def test_fetch_ticker_returns_last_price(monkeypatch):
+
+    provider = BinanceProvider()
+
+    monkeypatch.setattr(
+        provider.exchange,
+        "fetch_ticker",
+        lambda symbol: {"symbol": symbol, "last": 43210.5},
+    )
+
+    price = provider.fetch_ticker("BTC/USDT")
+
+    assert price == 43210.5
+
+
+@pytest.mark.parametrize(
+    "raised",
+    [
+        ccxt.RateLimitExceeded("binance rate limit exceeded"),
+        ccxt.RequestTimeout("request timed out"),
+        ccxt.ExchangeNotAvailable("exchange under maintenance"),
+        ccxt.BadSymbol("bad symbol XYZ/ABC"),
+        ccxt.ExchangeError("generic exchange error"),
+    ],
+)
+def test_fetch_ticker_wraps_ccxt_errors(monkeypatch, raised):
+
+    provider = BinanceProvider()
+
+    def _raise(*args, **kwargs):
+        raise raised
+
+    monkeypatch.setattr(
+        provider.exchange,
+        "fetch_ticker",
+        _raise,
+    )
+
+    with pytest.raises(DataProviderError):
+
+        provider.fetch_ticker("BTC/USDT")

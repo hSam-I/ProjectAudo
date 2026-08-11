@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 
@@ -20,8 +21,20 @@ class PerformanceDatabase:
 
     @classmethod
     def save(cls, stats: dict):
+        """
+        Writes to a temp file then os.replace()'s it into place, so a
+        crash mid-write can never leave a truncated/corrupt JSON file
+        for the next load() to choke on. This matters now that
+        register_trade() can be called repeatedly from a long-running
+        live paper-trading process (via enable_voting), not just from
+        short-lived one-shot backtests.
+        """
 
         cls.FILE.parent.mkdir(exist_ok=True)
 
-        with open(cls.FILE, "w", encoding="utf-8") as f:
+        temp_path = cls.FILE.with_suffix(".tmp")
+
+        with open(temp_path, "w", encoding="utf-8") as f:
             json.dump(stats, f, indent=4)
+
+        os.replace(temp_path, cls.FILE)
