@@ -413,3 +413,17 @@ Tüm suite bu turdan sonra: 204 passed.
    `logger.warning(...)` çağırıyor, `except: pass` yok. Muhtemelen son commit
    (`84190e2 "Corrections to code"`) bunu zaten düzeltmiş. `git log -- app/decision/decision_engine.py`
    ile teyit edildi.
+5. ⚠️ **BİLİNEN SINIRLAMA (belgelendi, düzeltilmedi — 2026-08-11, `feature/multi-position-backtester`
+   branch'inde eklendi, henüz main'e merge edilmedi)** — `Backtester._run_multi()`/
+   `_align_timestamps()` (çoklu-sembol/çoklu-pozisyon backtest) her sembolün indikatörlerini
+   kendi TAM/hizalanmamış serisi
+   üzerinde hesaplıyor (warmup'ın doğru kalması için — hizalamadan ÖNCE hesaplanmazsa EMA/RSI
+   gibi indikatörler yanlış ısınır), SONRA sembolleri ortak zaman ekseninin kesişimine göre
+   filtreliyor. Bu sıralama indikatör DEĞERLERİNİ doğru tutuyor ama bir sembol kesişimde
+   ORTADAN (uçlardan değil) mum kaybederse, hizalanmış seride ARDIŞIK görünen iki satır
+   arasında gerçekte bir zaman boşluğu olabiliyor — `DecisionEngine.evaluate()`'in ardışık-mum
+   varsayımıyla çalışan kısımları (ör. EMA crossover tespiti, `MarketRegimeDetector`'ın son
+   pencereye bakan hesapları) bu durumda gerçekte olmayan bir "ardışık mum" üzerinden karar
+   verebilir. Kasıtlı olarak düzeltilmedi — kapsamı ayrı bir karar (ör. gap'li sembolleri
+   tamamen atlamak ya da indikatörleri hizalama SONRASI yeniden hesaplamak, ikincisi warmup'ı
+   bozar) gerektiriyor, bu turun kapsamı dışında bırakıldı.

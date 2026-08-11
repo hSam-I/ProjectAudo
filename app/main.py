@@ -6,6 +6,7 @@ from app.backtesting.performance import PerformanceAnalyzer
 from app.config.settings import settings
 from app.data.binance_provider import BinanceProvider
 from app.data.exceptions import DataProviderError
+from app.data.multi_data_provider import MultiDataProvider
 from app.data.validator import DataValidator
 from app.decision.decision_engine import DecisionEngine
 from app.features.feature_engine import FeatureEngine
@@ -352,6 +353,79 @@ def run_scan():
     print("=" * 70)
 
 
+def run_multi_position():
+    """
+    Multi-symbol backtest sharing one Portfolio's balance and risk
+    limits across settings.symbols (Backtester.run() with a dict
+    input - see the multi-position work on
+    feature/multi-position-backtester). Unlike --scan, this actually
+    opens/manages/closes trades through PaperBroker; it is a real
+    backtest, not a signal-only scan.
+
+    Sets settings.enable_multi_position=True for the duration of this
+    call - Backtester.run() refuses a dict input otherwise, as a
+    safety rail against any other code path accidentally triggering a
+    multi-position run.
+    """
+
+    settings.enable_multi_position = True
+
+    try:
+
+        market_data = MultiDataProvider().fetch_all(
+            symbols=settings.symbols,
+            timeframe=settings.timeframe,
+            limit=settings.candle_limit,
+        )
+
+    except DataProviderError as e:
+
+        logger.error(f"Failed to fetch market data: {e}")
+
+        return
+
+    portfolio = Backtester().run(market_data)
+
+    performance = PerformanceAnalyzer(portfolio)
+
+    print()
+    print("=" * 70)
+    print("          PROJECT AUDO - MULTI-POSITION BACKTEST")
+    print("=" * 70)
+
+    print(f"Symbols       : {', '.join(settings.symbols)}")
+    print(f"Total Trades  : {portfolio.total_trades}")
+    print(f"Open Trades   : {portfolio.open_trades}")
+    print(f"Balance       : ${portfolio.balance:,.2f}")
+
+    separator()
+
+    print("Performance")
+
+    print(f"Win Rate      : {performance.win_rate():.2f}%")
+    print(f"Loss Rate     : {performance.loss_rate():.2f}%")
+    print(f"Profit Factor : {performance.profit_factor():.2f}")
+    print(f"Expectancy    : ${performance.expectancy():,.2f}")
+    print(f"Max Drawdown  : {performance.max_drawdown():.2f}%")
+    print(f"Sharpe Ratio  : {performance.sharpe_ratio():.2f}")
+
+    separator()
+
+    print("Per-Symbol Trade Counts")
+
+    trades_per_symbol = {}
+
+    for trade in portfolio.trades:
+        trades_per_symbol[trade.symbol] = (
+            trades_per_symbol.get(trade.symbol, 0) + 1
+        )
+
+    for symbol in settings.symbols:
+        print(f"  {symbol:<12}: {trades_per_symbol.get(symbol, 0)} trades")
+
+    print("=" * 70)
+
+
 if __name__ == "__main__":
 
     import argparse
@@ -370,11 +444,19 @@ if __name__ == "__main__":
         help="Scan settings.symbols for raw signals instead of running a single-symbol backtest.",
     )
 
+    parser.add_argument(
+        "--multi-position",
+        action="store_true",
+        help="Run a multi-symbol backtest across settings.symbols sharing one portfolio's risk limits.",
+    )
+
     args = parser.parse_args()
 
     if args.walk_forward:
         run_walk_forward()
     elif args.scan:
         run_scan()
+    elif args.multi_position:
+        run_multi_position()
     else:
         main()
