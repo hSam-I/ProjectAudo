@@ -442,7 +442,7 @@ sadece tek-seferlik `Decision` döndürüyor), bilinçli olarak dokunulmadı.
 
 Tüm suite bu turdan sonra: 217 passed.
 
-## Altıncı tur: canlı veri akışı + paper trading (feature/live-paper-trading, DEVAM EDİYOR, 2026-08-11)
+## Altıncı tur: canlı veri akışı + paper trading (feature/live-paper-trading, Faz 1-3 tamamlandı, main'e merge bekleniyor, 2026-08-11)
 
 Roadmap'teki "Paper Trading"i gerçekleştiren, ilk kez UZUN SÜRE ÇALIŞAN gerçek-zamanlı bir
 döngü ekleyen tur (önceki tüm modlar tek-seferlik/offline). Önce kodsuz bir PLAN onaylandı;
@@ -496,8 +496,43 @@ eklendi. Faz adı adı test edilip onaylanarak ilerliyor.
     başarısız olmasına) yol açtı — modül genelinde `autouse` bir `tmp_path` izolasyon fixture'ı
     ekleyerek düzeltildi, sızan dosya silindi. Tüm suite: 256 passed.
 
-Faz 3 (uzun süreli çalışma dayanıklılığı — try/except'li ana döngü, log rotasyonu,
-bellek birikimi yönetimi) henüz yapılmadı, bu bölüm o tamamlanınca güncellenecek.
+21. **Faz 3 — uzun süreli çalışma dayanıklılığı.** `LiveTrader.run_forever()`'ın döngüsü
+    artık her iterasyonu (TÜM process'i değil) try/except ile sarıyor: `poll_once()` sırasında
+    çıkan HERHANGİ bir `Exception` (`DataProviderError` dahil) `logger.error` ile loglanıp
+    `settings.live_error_retry_seconds` (varsayılan 30) kadar beklenip döngü devam ediyor —
+    geçici bir ağ hatası artık haftalarca çalışması gereken process'i çökertmiyor. İSTİSNA:
+    yeni `app/execution/live_state_store.py::LiveStateCorruptError` bu genel yakalamaya
+    KASITLI OLARAK dahil değil — `except LiveStateCorruptError: raise` ile ayrıca yakalanıp
+    tekrar fırlatılıyor, döngüyü durduruyor. Gerekçe: bozuk bir state dosyası yeniden
+    denemekle düzelmez, sessizce devam etmek paper-trading geçmişini fark edilmeden
+    kaybetmek anlamına gelirdi. `LiveStateStore.load()` artık `json.JSONDecodeError`'ı
+    yakalayıp net bir mesajla `LiveStateCorruptError` olarak yeniden fırlatıyor.
+    `app/logging/logger.py`: düz `logging.FileHandler` yerine `RotatingFileHandler`
+    (`settings.log_max_bytes`=5MB, `settings.log_backup_count`=5) — ROOT logger üzerinden
+    `logging.basicConfig()` ile DEĞİL, doğrudan `"ProjectAudo"` adlı logger'a `addHandler`
+    ile ekleniyor. **Ders:** `logging.basicConfig()` root logger'da halihazırda handler
+    varsa SESSİZCE hiçbir şey yapmıyor — pytest'in kendi logging plugin'i test session'ı
+    başlarken root logger'a zaten bir handler ekliyor, bu yüzden orijinal `basicConfig()`
+    deseni testte HİÇBİR ZAMAN bizim `RotatingFileHandler`'ımızı gerçekten eklemiyordu
+    (`test_logger_uses_rotating_file_handler` önce root logger'ı kontrol edecek şekilde
+    yazılıp 0 handler bulup FAIL etti, kök nedeni bulunca düzeltildi). `logger.propagate`
+    varsayılanında (`True`) bırakıldı — aksi halde mevcut `caplog`-tabanlı testlerin hepsi
+    (birçok dosyada) mesajları yakalayamaz olurdu. **Bellek birikimi (4. madde) hakkında
+    bulgu — planda varsayılan sorun ORTADA YOKTU:** `LiveFeed` hiç büyüyen bir bellek arabelleği
+    tutmuyor — `fetch_closed_candles()` her pollde API'den sınırlı (`candle_limit-1` satır)
+    TAZE bir pencere çekiyor, çağrılar arası biriktirmiyor; bu yüzden `LiveFeed`'in bellek
+    ayak izi process ne kadar uzun çalışırsa çalışsın SABİT. Gerçekten büyüyen tek durum
+    `Backtester.portfolio.trades`/`balance_history` (her trade/kapanışta bir kayıt) — bilinçli
+    olarak dokunulmadı (Faz 2'nin "Backtester'a hiç dokunulmadı" sınırını korumak için,
+    ayrıca gerçekçi bir paper-trading ufkunda pratik bir bellek sorunu değil, trim etmek
+    de zaten performans geçmişini/audit trail'i bozardı). Testler: `tests/test_logger.py`
+    (yeni), `tests/test_live_state_store.py`'e 2 (bozuk JSON'da `load()`/`restore_into()`'nun
+    `LiveStateCorruptError` fırlattığı), `tests/test_live_trader.py`'e 2 (`run_forever()`'ın
+    geçici hatadan sonra kısa bekleyip devam ettiği — `KeyboardInterrupt` ile deterministik
+    olarak durdurularak test edildi çünkü `BaseException`, `except Exception` tarafından
+    yakalanmıyor; bozuk state'te ASLA yeniden denemeden hemen durduğu). Tüm suite: 261 passed.
+
+Tüm suite bu turdan sonra: 261 passed.
 
 ## Bilinen sorunlar
 
