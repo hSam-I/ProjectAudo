@@ -1,5 +1,62 @@
+import random
+
 import pandas as pd
 import pytest
+
+
+@pytest.fixture
+def random_walk_ohlcv():
+    """
+    Factory for deterministic (fixed-seed) choppy random-walk
+    OHLCV data.
+
+    A monotonic trend saturates RSI long before a slow-moving
+    EMA can cross a fast one, so EMA/RSI crossover strategies
+    never fire on it. A choppy walk keeps RSI oscillating while
+    still producing real EMA crossovers, so it's used wherever
+    tests need a strategy to actually trade.
+    """
+
+    def _build(
+        n: int = 500,
+        seed: int = 0,
+        amplitude: float = 1.0,
+        start_price: float = 200.0,
+    ) -> pd.DataFrame:
+
+        rng = random.Random(seed)
+
+        start = pd.Timestamp("2024-01-01")
+
+        rows = []
+
+        price = start_price
+
+        for i in range(n):
+
+            open_ = price
+
+            price += rng.uniform(-amplitude, amplitude)
+
+            close = price
+
+            high = max(open_, close) + rng.uniform(0, amplitude * 0.3)
+            low = min(open_, close) - rng.uniform(0, amplitude * 0.3)
+
+            rows.append(
+                {
+                    "timestamp": start + pd.Timedelta(hours=i),
+                    "open": open_,
+                    "high": high,
+                    "low": low,
+                    "close": close,
+                    "volume": 1000 + (i % 50) * 10,
+                }
+            )
+
+        return pd.DataFrame(rows)
+
+    return _build
 
 
 @pytest.fixture

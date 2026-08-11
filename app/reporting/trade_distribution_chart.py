@@ -36,11 +36,25 @@ class TradeDistributionChart:
 
         plt.figure(figsize=(6, 6))
 
-        plt.pie(
-            [wins, losses],
-            labels=["Wins", "Losses"],
-            autopct="%1.1f%%",
-        )
+        if wins == 0 and losses == 0:
+
+            plt.text(
+                0.5,
+                0.5,
+                "No trades",
+                ha="center",
+                va="center",
+            )
+
+            plt.axis("off")
+
+        else:
+
+            plt.pie(
+                [wins, losses],
+                labels=["Wins", "Losses"],
+                autopct="%1.1f%%",
+            )
 
         plt.title("Trade Distribution")
 

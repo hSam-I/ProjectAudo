@@ -75,6 +75,8 @@ class ExecutionEngine:
 
         trade.exit_price = execution_price
 
+        trade.recalculate_profit()
+
         fee = self.fee_model.calculate(
             price=execution_price,
             quantity=trade.quantity,

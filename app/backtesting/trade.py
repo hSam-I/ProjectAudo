@@ -53,14 +53,24 @@ class Trade:
 
         self.exit_reason = reason
 
+        self.recalculate_profit()
+
+    def recalculate_profit(self) -> None:
+        """
+        Recomputes profit from the current entry/exit price.
+
+        Needed because exit_price can change after close() (e.g.
+        execution slippage), and profit must stay consistent with it.
+        """
+
         if self.side == OrderSide.BUY:
 
             self.profit = (
-                exit_price - self.entry_price
+                self.exit_price - self.entry_price
             ) * self.remaining_quantity
 
         else:
 
             self.profit = (
-                self.entry_price - exit_price
+                self.entry_price - self.exit_price
             ) * self.remaining_quantity
