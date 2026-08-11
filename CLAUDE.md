@@ -23,15 +23,25 @@ BinanceProvider.fetch_ohlcv
   -> DecisionEngine().evaluate(df)          (app/decision/decision_engine.py)
        -> MarketRegimeDetector.detect
        -> strategy.generate_signal(df)      (app/strategy/registry.py -> get_strategy)
+                                             VEYA settings.enable_voting=True ise
+                                             DecisionEngine._vote(df) (bkz. "Dördüncü tur" madde 14)
        -> SignalScorer.score(df)            ("legacy" kural tabanlı skor)
        -> ScoreEngine.score(df)             (AI feature skoru, app/ai/score_engine.py)
        -> SignalFilter.filter(raw_signal, score)
   -> RiskManager (stop_loss / take_profit / risk_amount)
   -> Backtester().run(df)                   (app/backtesting/backtester.py, kendi içinde
                                               IndicatorEngine.calculate_all'ı TEKRAR çağırır)
-  -> PerformanceAnalyzer
+  -> PerformanceAnalyzer                    (Sharpe/Sortino/CAGR/Calmar dahil, bkz. "Dördüncü tur" madde 11)
   -> TradeJournal / EquityReport / EquityChart / DrawdownChart / TradeDistributionChart
 ```
+
+`main.py` artık 3 çalışma modu destekliyor (`python -m app.main [--walk-forward|--scan]`,
+bkz. "Dördüncü tur"):
+- (flagsiz) `main()` — yukarıdaki tek-sembol backtest zinciri, varsayılan davranış, değişmedi.
+- `--walk-forward` — `run_walk_forward()`: `WalkForwardAnalyzer` pencereleri üzerinde
+  aynı `Backtester`'ı tekrar tekrar çalıştırır, konsola özet basar.
+- `--scan` — `run_scan()`: `Scheduler().run_once()` üzerinden çoklu sembol ham sinyal
+  taraması yapar (risk sizing/trade açma YOK, bkz. madde 13).
 
 `Backtester.run()` her mum için `DecisionEngine.evaluate(history)` çağırıp
 `PaperBroker` üzerinden pozisyon açıp kapatıyor; risk tarafında
@@ -93,51 +103,64 @@ Ana pipeline'a bağlı olanlar:
   üzerinden erişilebilir, o da hiçbir yerden çağrılmıyor)
 - `execution/` — `order.py`, `order_book.py` (kullanılmıyor)
 
-**Tamamen yetim (main.py'den hiçbir zincirle ulaşılamıyor, sadece kendi testleri var):**
-Bu 8 klasör canlı koddan hiçbir yerden import edilmiyor (`grep -rn "app\.<klasör>" app` ile
-teyit edildi, sadece birbirlerine referans veriyorlar). Bilinçli olarak dokunulmadı — sadece
-belgeleniyor, entegre/silinmedi (2026-08-10 karar).
+**Opsiyonel/flag ile bağlı (Dördüncü tur, 2026-08-11 — main.py'ye artık bağlı ama
+varsayılan davranışı DEĞİŞTİRMİYOR, hepsi opt-in):**
 
-- `app/voting/` — `VotingEngine.vote(votes)`: birden fazla stratejinin ağırlıklı
-  oylarını (Signal + weight) tek bir Signal'e indirger. `DecisionEngine` şu an tek
-  strateji kullanıyor, çoklu strateji oylaması yok.
+- `app/backtesting/performance.py::PerformanceAnalyzer` üzerinden HER ZAMAN (flag
+  gerekmeden) bağlı: `app/analytics/sharpe_ratio.py`, `sortino_ratio.py`,
+  `calmar_ratio.py` — `sharpe_ratio()`/`sortino_ratio()`/`cagr()`/`calmar_ratio()`
+  metodları eklendi, main.py konsol raporuna basılıyor. Saf raporlama, karar/trade
+  mantığına dokunmuyor (bkz. madde 11).
+- `settings.enable_research` (varsayılan `False`) ile main.py'ye bağlı:
+  `app/research/research_engine.py::ResearchEngine` (kendi içinde
+  `app/optimization/{optimization_pipeline,scenario_runner,monte_carlo,risk_of_ruin}`
+  kullanıyor) + `app/research/report_builder.py::ResearchReportBuilder` — backtest
+  sonrası `reports/research_report.json` üretiyor (bkz. madde 12).
+- `python -m app.main --walk-forward` ile main.py'ye bağlı:
+  `app/optimization/walk_forward.py::WalkForwardAnalyzer` — `main.run_walk_forward()`
+  üretilen her pencerede mevcut `Backtester`'ı çağırıyor (bkz. madde 12).
+- `python -m app.main --scan` ile main.py'ye bağlı: `app/scheduler/scheduler.py::Scheduler`
+  (zaten birbirine bağlı `app/backtesting/multi_asset_backtester.py::MultiAssetBacktester`
+  -> `app/data/multi_data_provider.py::MultiDataProvider` -> `app/scanner/market_scanner.py::MarketScanner`
+  zincirini çağırıyor) — risk sizing/trade açma YOK, sadece ham `Decision` per sembol
+  (bkz. madde 13).
+- `settings.enable_voting` (varsayılan `False`) ile `DecisionEngine.evaluate()`'e bağlı:
+  `app/voting/{strategy_vote.py,voting_engine.py}` + `app/analytics/{learning_engine.py,
+  weight_manager.py,strategy_stats.py,performance_db.py}` — `DecisionEngine._vote(df)`
+  `settings.voting_strategies`'teki her stratejiyi `WeightManager`'dan gelen geçmiş
+  win-rate ağırlığıyla oylatıp `VotingEngine.vote()` ile birleştiriyor;
+  `Backtester._register_learning()` trade kapanınca SADECE kazanan taraftaki
+  stratejilere `LearningEngine.register_trade()` çağırıyor (bkz. madde 14 — bu turun
+  en riskli/invaziv adımı, DecisionEngine/Backtester çekirdeğine dokunuyor, bu yüzden
+  varsayılan kapalı).
+
+**Tamamen yetim (main.py'den hiçbir zincirle ulaşılamıyor, sadece kendi testleri var):**
+
 - `app/agents/` — neredeyse boş, sadece `__init__.py` var, hiç sınıf yok. README'deki
   "Multi-Agent Analysis" vizyonunun henüz yazılmamış iskeleti.
-- `app/portfolio/` — `PortfolioManager`: symbol->Trade dict'i ile açık pozisyonları
-  takip eder (can_open_trade/register_trade/close_trade/total_exposure).
+- `app/portfolio/` + `app/position/` — **bilinçli olarak entegre edilmedi (2026-08-11,
+  "Dördüncü tur" madde 15 karar).** Gerekçe: `Backtester` bugün tek-sembol/tek-trade
+  mimarisinde (`current_trade` tek bir skaler, dict/liste değil); `app/portfolio/PortfolioManager`
+  (symbol->Trade dict'i, çoklu pozisyon takibi) ancak `Backtester` çoklu-sembol/çoklu-pozisyon'a
+  yeniden tasarlanırsa anlamlı olur — bu, orphan-modül entegrasyonunun kapsamını aşan ayrı
+  bir proje. `app/position/Position` dataclass'ı zaten `app/backtesting/trade.py::Trade`'in
+  strict alt kümesi (sadece symbol/side/entry_price/quantity, stop_loss/take_profit/profit/status
+  yok) — entegre etmenin hiçbir kazancı yok. `app/portfolio/`'da ayrıca `risk_analyzer.py`,
+  `risk_limits.py`, `statistics.py`, `performance_tracker.py` de var, hepsi aynı gerekçeyle yetim.
   `app/backtesting/portfolio.py`'deki (gerçekten kullanılan) `Portfolio` sınıfıyla
-  KARIŞTIRMA — isim çakışması var ama ayrı, ilgisiz sınıflar. Ayrıca `risk_analyzer.py`,
-  `risk_limits.py`, `statistics.py`, `performance_tracker.py` da burada, hepsi yetim.
-- `app/position/` — sadece `Position` dataclass'ı (symbol/side/entry_price/quantity).
-  Gerçek pozisyon takibi `app/backtesting/trade.py::Trade` ile yapılıyor, bu ayrı/kullanılmayan bir model.
-- `app/research/` — `ResearchEngine`: Monte Carlo simülasyonu + risk-of-ruin +
-  senaryo çalıştırıcıyı birleştirip rapor üretir. `app/optimization/`'a bağımlı (tek
-  gerçek bağlantı bu iki yetim klasör arası).
-- `app/analytics/` — `LearningEngine.register_trade()` (strateji win/loss'unu
-  `PerformanceDatabase`'e yazar) + `WeightManager.weight()` (win-rate'e göre voting
-  ağırlığı hesaplar) + Sharpe/Sortino/Calmar/Drawdown/ProfitFactor hesaplayıcıları.
-  Kavramsal olarak `app/voting/` + `app/backtesting/performance.py` ile örtüşüyor ama
-  bağlı değil — trade sonrası feedback-loop (strateji ağırlıklarını geçmiş performansa
-  göre güncelleme) hiç çalışmıyor.
-- `app/scheduler/` — `Scheduler.run_once()` sadece `MultiAssetBacktester().scan()`'ı
-  çağırıyor; periyodik/canlı çalıştırma iskeleti ama kendisi de hiçbir yerden
-  tetiklenmiyor (cron/loop yok).
-- `app/optimization/` — grid search, walk-forward, Monte Carlo, stress test,
-  risk-of-ruin gibi strateji parametre optimizasyonu araçları. Sadece
-  `app/research/research_engine.py` içeriden kullanıyor; o da yetim.
-  NOT: `WalkForwardAnalyzer` (sadece rolling train/test pencere üretiyor, backtest
-  mantığı içermiyor) "İkinci tur" madde 2'de test yardımcı aracı olarak kullanıldı —
-  bu, main.py pipeline'ına entegre etmek değil, sadece pencere üretme yardımcı sınıfını
-  test kodunda ödünç almak (`tests/test_walk_forward.py` zaten aynı şekilde kullanıyordu).
+  KARIŞTIRMA — isim çakışması var ama ayrı, ilgisiz sınıflar.
 - `app/services/market_analyzer.py` — round-1 taramasında kaçırılmış ekstra bir yetim
   modül (2026-08-11'de fark edildi). `app/services/__init__.py` bile yok. `MarketAnalyzer.analyze()`
   main.py'den bağımsız kendi `BinanceProvider`+`DataValidator`+`EMARSIStrategy`+`SignalScorer`+`RiskManager`
   zincirini kuruyor, hiçbir yerden çağrılmıyor.
 
-Özet: `voting` + `analytics` (weight_manager) birlikte "geçmiş performansa göre
-strateji ağırlıklandırma" özelliğini oluşturuyor; `research` + `optimization` birlikte
-"parametre optimizasyonu / senaryo analizi" özelliğini oluşturuyor. İkisi de tasarlanmış
-ama DecisionEngine/Backtester pipeline'ına hiç kablolanmamış.
+Özet: "Dördüncü tur"da `voting` + `analytics` (weight_manager/learning_engine) birlikte
+"geçmiş performansa göre strateji ağırlıklandırma" özelliğini `enable_voting` flag'i
+arkasında main.py'ye bağlandı; `research` + `optimization` birlikte "parametre
+optimizasyonu / senaryo analizi" özelliğini `enable_research`/`--walk-forward` arkasında
+bağlandı; `scheduler` (+ zaten birbirine bağlı `multi_asset_backtester`/`market_scanner`/
+`multi_data_provider`) `--scan` arkasında bağlandı. `agents`, `portfolio`, `position`
+hâlâ tamamen yetim (yukarıya bak).
 
 ## Test durumu
 
@@ -270,6 +293,89 @@ yapılması riski var.
 
 Tüm suite bu turdan sonra: 178 passed.
 
+## Dördüncü tur: yetim modül entegrasyonu (2026-08-11)
+
+"İkinci tur"/"Üçüncü tur" ana pipeline'ı sağlamlaştırdıktan sonra, "Bilinen sorunlar"
+madde 2'de belgelenen 8 yetim klasörden (`voting`, `agents`, `portfolio`, `position`,
+`research`, `analytics`, `scheduler`, `optimization`) hangilerinin entegre edilebileceğine
+karar verme turu. Önce kodsuz bir PLAN onaylandı (kavramsal gruplama + en az riskliden en
+riskliye sıralama + her modül için tam bağlantı noktası + risk analizi), sonra plan
+adım adım, her adımdan sonra test çalıştırıp onay alınarak uygulandı.
+
+11. **Adım 1 — Sharpe/Sortino/Calmar/CAGR** (`app/analytics/{sharpe_ratio,sortino_ratio,
+    calmar_ratio}.py` -> `PerformanceAnalyzer`). En düşük riskli adım: saf raporlama, karar/trade
+    mantığına dokunmuyor. `PerformanceAnalyzer`'a `sharpe_ratio()`/`sortino_ratio()`
+    (`balance_history`'den türetilen period-return listesi üzerinden) ve `cagr()`/
+    `calmar_ratio()` eklendi. CAGR formülü kullanıcı kararıyla belirlendi:
+    `(bitiş_equity / başlangıç_equity) ^ (365 / gün_sayısı) - 1`, gün sayısı ilk trade'in
+    `entry_time`'ından son kapanan trade'in `exit_time`'ına kadar (takvim "bugünü" değil,
+    çünkü backtest geçmiş bir pencere üzerinde çalışıyor); toplam kayıpta (`end_equity<=0`)
+    negatif taban için fraksiyonel üs alma hatasını önlemek üzere -1.0 (%-100) döndürülüyor.
+    `app/analytics/profit_factor.py` BİLİNÇLİ OLARAK entegre edilmedi — `PerformanceAnalyzer.profit_factor()`
+    zaten var (0/inf davranışı dahil), aynı isimde iki implementasyon istenmedi.
+    main.py konsol raporuna 4 satır eklendi. Testler: `tests/test_performance.py`'e 7 yeni
+    test (uptrend'de pozitif Sharpe, yetersiz geçmişte 0, downside'sız Sortino=0, CAGR ikiye
+    katlama/sıfır-trade/toplam-kayıp, Calmar'ın CAGR+drawdown'ı doğru birleştirdiği).
+    Tüm suite: 185 passed.
+12. **Adım 2 — research + optimization** (`app/research/{research_engine,report_builder}.py`,
+    `app/optimization/walk_forward.py`). `settings.enable_research: bool = False` eklendi;
+    `True` ise main.py backtest sonrası `ResearchEngine().run(profits, df)` ->
+    `ResearchReportBuilder.build(...)` çalışıp `reports/research_report.json` yazıyor
+    (`ResearchEngine.pipeline` alanı `run()` içinde hiç kullanılmıyor — dead field, olduğu
+    gibi bırakıldı, davranış değişikliği değil). `WalkForwardAnalyzer` için yeni
+    `main.run_walk_forward()` + `python -m app.main --walk-forward` CLI flag'i eklendi —
+    `WalkForwardAnalyzer.generate_windows(df)`'in her penceresinde mevcut `Backtester`'ı
+    (train ve test için ayrı ayrı) çağırıyor, yeni backtest mantığı icat edilmedi
+    (`tests/test_ema_rsi_walk_forward.py`'nin deseni production'a taşındı). `settings.walk_forward_train_size=250`,
+    `walk_forward_test_size=100` eklendi. Testler: `tests/test_main_research.py` (varsayılanda
+    rapor yazılmadığı, flag açıkken doğru JSON yapısı, sıfır-trade'li piyasada çökmediği),
+    `tests/test_main_walk_forward.py` (2 pencere üretip her ikisini de rapor bastığı, gerçek
+    borsaya çıkmadığı, yetersiz/geçersiz veri durumunda temiz çıkış). Tüm suite: 192 passed.
+13. **Adım 3 — scheduler** (`app/scheduler/scheduler.py`, zaten birbirine bağlı
+    `multi_asset_backtester`/`market_scanner`/`multi_data_provider`). Yeni `main.run_scan()`
+    + `python -m app.main --scan` CLI flag'i: `Scheduler().run_once()` çağırıp her sembol
+    için ham `Decision`'ı tek satır özet olarak basıyor. Kapsam sınırı: `MarketScanner`'ın
+    risk sizing/trade açma mantığı YOK, sadece sinyal raporluyor — bu main()'in tek-sembol
+    backtest yoluna hiç dokunmuyor, tamamen paralel bir CLI modu. Planın açık noktası
+    doğrulandı: `MultiDataProvider.fetch_all()` (`app/data/multi_data_provider.py`) içeride
+    `BinanceProvider.fetch_ohlcv()`'i çağırıyor, yani "İkinci tur" madde 6'daki
+    ccxt-hata -> `DataProviderError` sarma mekanizmasını olduğu gibi miras alıyor — ayrıca
+    bir try/except eklemeye gerek yoktu, sadece `run_scan()` çağrı noktasında main()'deki
+    desenle aynı try/except yeterliydi. Testler: `tests/test_main_scan.py`,
+    `tests/test_multi_data_provider.py` (açık noktanın kanıtı: `fetch_all()`'ın
+    `DataProviderError`'ı olduğu gibi yukarı ilettiğini doğruluyor). Tüm suite: 197 passed.
+14. **Adım 4 — voting + analytics (learning_engine/weight_manager)** — planın en riskli/invaziv
+    adımı, `DecisionEngine.evaluate()` ve `Backtester.run()`'ın trade-kapama noktalarını
+    değiştiriyor. `settings.enable_voting: bool = False` + `settings.voting_strategies`
+    (varsayılan: 4 kayıtlı strateji) eklendi. Yeni `DecisionEngine._vote(df)`:
+    `voting_strategies`'teki her stratejiyi çalıştırıp `PerformanceDatabase.load()` ->
+    `StrategyStats.from_persisted(data)` (YENİ — `app/analytics/strategy_stats.py`'e eklenen
+    adapter; `LearningEngine` ham `{"wins":..,"losses":..}` dict'i persist ediyordu,
+    `WeightManager.weight()` ise `StrategyStats` nesnesi bekliyordu, ikisi arasında hiç
+    çevirici yoktu) -> `WeightManager.weight(stats)` ile ağırlıklandırıp `VotingEngine.vote()`
+    ile birleştiriyor. `evaluate()` SADECE `enable_voting=True` VE constructor'a açıkça bir
+    `strategy=` verilmemişse voting'e giriyor — açık strateji parametresi her zaman voting'i
+    eziyor (test izolasyonu ve "explicit > config" prensibi için). Kullanıcı kararıyla: trade
+    kâr/zararı SADECE ağırlıklı çoğunluğu oluşturan (kazanan) tarafa yazılıyor, kaybeden
+    taraftaki stratejilere yazılmıyor — `Decision.contributing_strategies` (yeni alan) sadece
+    kazanan sinyal yönünde oy veren strateji adlarını taşıyor, bu `Trade.contributing_strategies`
+    (yeni alan, trade açılırken kopyalanıyor) üzerinden trade kapanışına kadar taşınıyor;
+    `Backtester._register_learning()` (yeni) 3 kapanış noktasının (STOP_LOSS, TAKE_PROFIT,
+    SIGNAL) hepsinde bu listedeki stratejilere `LearningEngine.register_trade()` çağırıyor.
+    Liste boşsa (voting kapalıyken hep boş) hiçbir şey yapmıyor — `enable_voting=False`
+    iken main.py'nin davranışı BİREBİR AYNI kaldı (bunu doğrulamak için tam suite regresyonsuz
+    geçti). Testler: `tests/test_decision_engine_voting.py` (varsayılanda/`strategy=` açıkken
+    voting'in devre dışı kaldığı, çoklu stratejinin doğru birleştiği, sadece kazanan tarafın
+    `contributing_strategies`'e girdiği, geçmiş win-rate'in ağırlık üzerinden 1-1 berabereyi
+    gerçekten bozduğu, berabere durumda HOLD+boş liste), `tests/test_learning_engine_integration.py`
+    (uçtan uca `Backtester.run()` ile kapanan her trade'in `data/strategy_stats.json`'a
+    doğru yazıldığı — izole `tmp_path` ile, `enable_voting=False` iken hiç yazılmadığı).
+    Tüm suite: 204 passed.
+15. **Adım 5 — `app/portfolio/` + `app/position/`: ERTELENDİ (kullanıcı kararı).** Bkz.
+    yukarıdaki "Klasör yapısı" bölümündeki "Tamamen yetim" listesi — gerekçe orada.
+
+Tüm suite bu turdan sonra: 204 passed.
+
 ## Bilinen sorunlar
 
 1. ✅ **DÜZELTİLDİ (2026-08-10)** — AI score bazı yollarda her zaman 0 dönüyordu.
@@ -284,12 +390,16 @@ Tüm suite bu turdan sonra: 178 passed.
    eklendi (diğer tüm çağıranlarla tutarlı hale getirildi). `pytest tests/test_score_engine.py
    tests/test_ai_decision_engine.py tests/test_decision_engine.py tests/test_decision_engine_v2.py
    tests/test_multi_asset_backtester.py` yeşil.
-2. ✅ **BELGELENDİ (2026-08-10)** — `app/voting`, `app/agents`, `app/portfolio`,
-   `app/position`, `app/research`, `app/analytics`, `app/scheduler`, `app/optimization`
-   main.py'ye bağlı değil. Kullanıcı kararıyla koda dokunulmadı (entegre edilmedi,
-   silinmedi) — yukarıdaki "Tamamen yetim" bölümünde her klasörün ne yaptığı ve neden
-   yetim olduğu ayrıntılı yazıldı, ileride entegrasyon/silme kararı verilirse oradan
-   devam edilebilir.
+2. ✅ **DÜZELTİLDİ/GÜNCELLENDİ (2026-08-10, sonra "Dördüncü tur"da entegre edildi 2026-08-11)** —
+   `app/voting`, `app/agents`, `app/portfolio`, `app/position`, `app/research`, `app/analytics`,
+   `app/scheduler`, `app/optimization` başlangıçta main.py'ye hiç bağlı değildi. "Dördüncü tur"da
+   plan onaylanıp `voting`+`analytics`(`enable_voting` flag'i), `research`+`optimization`
+   (`enable_research` flag'i + `--walk-forward`), `scheduler` (`--scan`) opt-in olarak
+   bağlandı — hepsi varsayılan davranışı değiştirmeyecek şekilde flag/CLI arkasında.
+   `app/agents`, `app/portfolio`, `app/position` hâlâ tamamen yetim (agents boş; portfolio/position
+   bilinçli olarak ertelendi, gerekçe: Backtester tek-sembol/tek-trade mimarisinde, çoklu
+   pozisyon desteği ayrı bir proje). Ayrıntılar için yukarıdaki "Klasör yapısı" bölümündeki
+   "Opsiyonel/flag ile bağlı" + "Tamamen yetim" listeleri ve "Dördüncü tur" bölümü.
 3. ✅ **DÜZELTİLDİ (2026-08-10)** — `requirements.txt`'te `winloop==0.6.3` platform
    koşulu olmadan sabitti; `app/` içinde hiçbir yerden import edilmiyor (muhtemelen
    Windows'ta `pip freeze` ile araya girmiş), ama satırda marker olmadığı için
