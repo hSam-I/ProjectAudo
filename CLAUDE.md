@@ -35,13 +35,19 @@ BinanceProvider.fetch_ohlcv
   -> TradeJournal / EquityReport / EquityChart / DrawdownChart / TradeDistributionChart
 ```
 
-`main.py` artık 3 çalışma modu destekliyor (`python -m app.main [--walk-forward|--scan]`,
-bkz. "Dördüncü tur"):
+`main.py` artık 5 çalışma modu destekliyor (`python -m app.main [--walk-forward|--scan|
+--multi-position|--live]`):
 - (flagsiz) `main()` — yukarıdaki tek-sembol backtest zinciri, varsayılan davranış, değişmedi.
 - `--walk-forward` — `run_walk_forward()`: `WalkForwardAnalyzer` pencereleri üzerinde
-  aynı `Backtester`'ı tekrar tekrar çalıştırır, konsola özet basar.
+  aynı `Backtester`'ı tekrar tekrar çalıştırır, konsola özet basar (bkz. "Dördüncü tur" madde 13).
 - `--scan` — `run_scan()`: `Scheduler().run_once()` üzerinden çoklu sembol ham sinyal
-  taraması yapar (risk sizing/trade açma YOK, bkz. madde 13).
+  taraması yapar (risk sizing/trade açma YOK, bkz. "Dördüncü tur" madde 13).
+- `--multi-position` — `run_multi_position()`: `MultiDataProvider.fetch_all()` ile çekilen
+  tüm `settings.symbols`'u `Backtester.run(market_data: dict)`'e verip TEK bir paylaşılan
+  portföyle çoklu-sembol backtest çalıştırır (bkz. "Beşinci tur").
+- `--live` — `run_live_paper_trading()`: `settings.symbols[0]` için süresiz canlı döngü,
+  `settings.enable_live_paper_trading`'e göre ya sadece gözlem ya gerçek paper trading
+  yapar (bkz. "Altıncı tur", DEVAM EDİYOR).
 
 `Backtester.run()` her mum için `DecisionEngine.evaluate(history)` çağırıp
 `PaperBroker` üzerinden pozisyon açıp kapatıyor; risk tarafında
@@ -83,7 +89,10 @@ Ana pipeline'a bağlı olanlar:
   `trailing_stop.py`, `break_even.py`, `partial_take_profit.py`
 - `backtesting/` — `Backtester` (asıl), `Portfolio`, `Trade`, `PerformanceAnalyzer`
   (`performance.py`). `multi_asset_backtester.py` main.py'ye bağlı değil (yukarı bak).
-  `backtest_runner.py`, `performance_report.py` kullanılmıyor.
+  `backtest_runner.py`, `performance_report.py` kullanılmıyor. `Backtester` artık
+  `app/portfolio/portfolio_manager.py::PortfolioManager`'ı da kullanıyor (sembol bazlı
+  "açık pozisyon var mı" kapısı — bkz. "Beşinci tur"), bu yüzden `PortfolioManager`
+  ARTIK YETİM DEĞİL (aşağıdaki "Tamamen yetim" listesine bak, güncellendi).
 - `broker/` — `PaperBroker` -> `ExecutionEngine` (`fee_model.py` + `slippage_model.py`
   gerçekten uygulanıyor, her buy/sell'de fee bakiyeden düşülüyor ve fiyata slippage
   ekleniyor/çıkarılıyor). `Backtester` bu oranları `settings.commission`/`settings.slippage`'dan
@@ -101,7 +110,10 @@ Ana pipeline'a bağlı olanlar:
 - `logging/` — `logger.py`
 - `scanner/` — `MarketScanner` (main.py'ye bağlı değil, sadece `MultiAssetBacktester`
   üzerinden erişilebilir, o da hiçbir yerden çağrılmıyor)
-- `execution/` — `order.py`, `order_book.py` (kullanılmıyor)
+- `execution/` — `order.py`, `order_book.py` (hâlâ dolaylı kullanılıyor —
+  `PaperBroker.execute_buy()` bir `Order` oluşturup dolduruyor ama pending-order/limit-order
+  yolu hiç tetiklenmiyor, backtest her zaman anlık market fill kullanıyor).
+  `live_feed.py`, `live_trader.py`, `live_state_store.py` — `--live` CLI modu, bkz. "Altıncı tur".
 
 **Opsiyonel/flag ile bağlı (Dördüncü tur, 2026-08-11 — main.py'ye artık bağlı ama
 varsayılan davranışı DEĞİŞTİRMİYOR, hepsi opt-in):**
@@ -138,17 +150,22 @@ varsayılan davranışı DEĞİŞTİRMİYOR, hepsi opt-in):**
 
 - `app/agents/` — neredeyse boş, sadece `__init__.py` var, hiç sınıf yok. README'deki
   "Multi-Agent Analysis" vizyonunun henüz yazılmamış iskeleti.
-- `app/portfolio/` + `app/position/` — **bilinçli olarak entegre edilmedi (2026-08-11,
-  "Dördüncü tur" madde 15 karar).** Gerekçe: `Backtester` bugün tek-sembol/tek-trade
-  mimarisinde (`current_trade` tek bir skaler, dict/liste değil); `app/portfolio/PortfolioManager`
-  (symbol->Trade dict'i, çoklu pozisyon takibi) ancak `Backtester` çoklu-sembol/çoklu-pozisyon'a
-  yeniden tasarlanırsa anlamlı olur — bu, orphan-modül entegrasyonunun kapsamını aşan ayrı
-  bir proje. `app/position/Position` dataclass'ı zaten `app/backtesting/trade.py::Trade`'in
-  strict alt kümesi (sadece symbol/side/entry_price/quantity, stop_loss/take_profit/profit/status
-  yok) — entegre etmenin hiçbir kazancı yok. `app/portfolio/`'da ayrıca `risk_analyzer.py`,
-  `risk_limits.py`, `statistics.py`, `performance_tracker.py` de var, hepsi aynı gerekçeyle yetim.
-  `app/backtesting/portfolio.py`'deki (gerçekten kullanılan) `Portfolio` sınıfıyla
-  KARIŞTIRMA — isim çakışması var ama ayrı, ilgisiz sınıflar.
+- `app/portfolio/portfolio_manager.py::PortfolioManager` — **ARTIK YETİM DEĞİL.** "Dördüncü tur"
+  madde 15'te (2026-08-11) "Backtester tek-sembol/tek-trade mimarisinde, entegrasyon ayrı bir
+  proje" gerekçesiyle ERTELENMİŞTİ; tam da o ayrı proje "Beşinci tur"da yapılıp `Backtester`
+  çoklu-sembol/çoklu-pozisyona genişletildi ve `PortfolioManager` bu genişlemede gerçekten
+  entegre edildi (bkz. "Beşinci tur"). `app/backtesting/portfolio.py`'deki (bakiye/equity
+  takip eden, gerçekten kullanılan) `Portfolio` sınıfıyla KARIŞTIRMA — isim çakışması var
+  ama ayrı, tamamlayıcı sınıflar (`Portfolio`=bakiye, `PortfolioManager`=sembol bazlı
+  "açık pozisyon var mı" kapısı).
+- `app/portfolio/{risk_analyzer,risk_limits,statistics,performance_tracker}.py` — HÂLÂ YETİM.
+  "Beşinci tur"da bilinçli olarak entegre edilmedi: `risk_limits.py::RiskLimits`
+  `app/risk/portfolio_risk_manager.py::PortfolioRiskManager` ile aynı işi yapıyor (toplam risk +
+  pozisyon sayısı limiti), iki paralel implementasyon istenmedi; diğer üçü `PerformanceAnalyzer`
+  ile örtüşen raporlama yardımcıları.
+- `app/position/Position` — HÂLÂ YETİM. `app/backtesting/trade.py::Trade`'in strict alt
+  kümesi (sadece symbol/side/entry_price/quantity, stop_loss/take_profit/profit/status yok) —
+  entegre etmenin hiçbir kazancı yok, "Beşinci tur"da da dokunulmadı.
 - `app/services/market_analyzer.py` — round-1 taramasında kaçırılmış ekstra bir yetim
   modül (2026-08-11'de fark edildi). `app/services/__init__.py` bile yok. `MarketAnalyzer.analyze()`
   main.py'den bağımsız kendi `BinanceProvider`+`DataValidator`+`EMARSIStrategy`+`SignalScorer`+`RiskManager`
@@ -373,8 +390,114 @@ adım adım, her adımdan sonra test çalıştırıp onay alınarak uygulandı.
     Tüm suite: 204 passed.
 15. **Adım 5 — `app/portfolio/` + `app/position/`: ERTELENDİ (kullanıcı kararı).** Bkz.
     yukarıdaki "Klasör yapısı" bölümündeki "Tamamen yetim" listesi — gerekçe orada.
+    **GÜNCELLEME (Beşinci tur, 2026-08-11):** bu erteleme kararı sonradan kısmen geri
+    alındı — `PortfolioManager` gerçekten entegre edildi, `Position` hâlâ yetim. Bkz.
+    "Beşinci tur" bölümü.
 
 Tüm suite bu turdan sonra: 204 passed.
+
+## Beşinci tur: çoklu-pozisyon backtester (feature/multi-position-backtester, main'e merge edildi, 2026-08-11)
+
+`Backtester`'ı tek-sembol/tek-trade mimariden çoklu-sembol/çoklu-pozisyona genişleten,
+mimari riski en yüksek tur. Önce kodsuz bir PLAN onaylandı (`current_trade` tekilinin
+`PortfolioManager` ile nasıl değişeceği, risk katmanının zaten genelleştirilip
+genelleştirilmediği, `MultiAssetBacktester` ile çakışma olup olmadığı, main.py entegrasyonu,
+adım adım regresyon kontrolü), sonra 3 fazda uygulandı.
+
+16. **Faz A — `current_trade` yerine `PortfolioManager`, davranış DEĞİŞMİYOR.**
+    `Backtester.__init__`'e `self.portfolio_manager = PortfolioManager()` eklendi;
+    `run()` içindeki tekil `current_trade` değişkeni `self.portfolio_manager.get_position(symbol)`/
+    `register_trade()`/`close_trade()` ile değiştirildi — `settings.symbols[0]` sabit tek
+    sembolle çalıştığı için bu, `current_trade`'in 1:1 eşdeğeri (dict'te 0-veya-1 anahtar,
+    değişkenin None-veya-Trade olmasıyla birebir aynı). Gerçek `Portfolio` (bakiye/equity)
+    hiç değişmedi. Bu adımdan sonra 204/204 test BİREBİR AYNI sonuçla geçti — refactor'ün
+    davranış-koruyucu olduğu kanıtlandı. Testler: `tests/test_backtester.py`'e 2 yeni test.
+    Tüm suite: 206 passed.
+17. **Faz B — gerçek çoklu-sembol yeteneği, `settings.enable_multi_position` flag'i
+    (varsayılan `False`) arkasında.** ÖNEMLİ BULGU: `RiskManager`/`PositionSizer`/
+    `PortfolioRiskManager` hiç tek-pozisyon varsayımıyla yazılmamış — zaten `Portfolio.open_positions`
+    (bir LİSTE) üzerinden TOPLAM riski hesaplıyorlardı, sadece bugüne kadar hiç 2+ pozisyonla
+    test edilmemişlerdi çünkü `current_trade` döngüsü buna izin vermiyordu. Yani "çoklu
+    pozisyonda toplam risk sınırlama" için YENİ kod yazılmadı, mevcut kod ilk kez gerçekten
+    çoklu pozisyonla karşılaştı. `Backtester.run(data)` artık `dict[symbol, DataFrame]`
+    de kabul ediyor (`_run_multi`) — flag kapalıyken dict verilirse `ValueError` (güvenlik
+    kapısı). Her sembolün verisi ÖNCE ham haliyle `DataValidator.validate` edilip (indikatörlerden
+    SONRA validate edilseydi NaN-warmup satırları yüzünden her zaman fail ederdi), geçersiz
+    sembol `logger.warning` ile atlanıp diğerleriyle devam ediliyor; geçerli semboller
+    `_align_timestamps()` ile ortak zaman ekseninin KESİŞİMİNE hizalanıyor, her sembolün kaç
+    mum kaybettiği ayrı ayrı `logger.warning` ile loglanıyor (sıfır kayıpta sessiz). Ortak
+    döngünün gövdesi (`_step`) tek-sembol ve çoklu-sembol arasında paylaşılıyor, kod tekrarı yok.
+    `app/portfolio/risk_limits.py::RiskLimits` bilinçli olarak entegre EDİLMEDİ (`PortfolioRiskManager`
+    ile aynı işi yapıyor). Testler: `tests/test_multi_position_backtester.py` (6 test — eşzamanlı
+    pozisyon, `max_open_positions`'ın TOPLAM'ı sınırladığı, zaman hizalama loglaması, geçersiz
+    sembol atlama). Tüm suite: 212 passed.
+18. **Faz C — `python -m app.main --multi-position` CLI modu.** `run_multi_position()`:
+    `MultiDataProvider.fetch_all()` ile veri çekip `Backtester().run(market_data)`'i çağırıyor
+    (çağrı öncesi `settings.enable_multi_position = True` set ediliyor). Testler:
+    `tests/test_main_multi_position.py` (5 test). Tüm suite: 217 passed.
+
+`MultiAssetBacktester`/`MarketScanner` (yukarı bak) ile İSİM ÇAKIŞMASI var ama kod çakışması
+YOK — `MultiAssetBacktester` hâlâ gerçek bir backtest yapmıyor (broker/Trade/Portfolio yok,
+sadece tek-seferlik `Decision` döndürüyor), bilinçli olarak dokunulmadı.
+
+Tüm suite bu turdan sonra: 217 passed.
+
+## Altıncı tur: canlı veri akışı + paper trading (feature/live-paper-trading, DEVAM EDİYOR, 2026-08-11)
+
+Roadmap'teki "Paper Trading"i gerçekleştiren, ilk kez UZUN SÜRE ÇALIŞAN gerçek-zamanlı bir
+döngü ekleyen tur (önceki tüm modlar tek-seferlik/offline). Önce kodsuz bir PLAN onaylandı;
+kod keşfinde kullanıcının "`app/execution/` hâlâ boş" varsayımının YANLIŞ olduğu ortaya
+çıktı — `order.py`/`order_book.py` zaten var ve çalışıyor (bkz. yukarı), yeni kod bu klasöre
+eklendi. Faz adı adı test edilip onaylanarak ilerliyor.
+
+19. **Faz 1 — canlı veri akışı, SADECE GÖZLEM (hiç trade açmaz).** `app/execution/live_feed.py::LiveFeed`:
+    `settings.timeframe`'e göre bir sonraki mum kapanışını hesaplayıp bekliyor
+    (+ `settings.live_poll_buffer_seconds` tamponu), `BinanceProvider.fetch_ohlcv`'i çağırıyor.
+    **TASARIM NOTU (plan'da yoktu, uygulama sırasında eklendi):** `fetch_closed_candles()`
+    REST yanıtının HER ZAMAN SON satırını atıyor — bir REST poll'ün en son mumu hâlâ oluşuyor
+    olabilir (henüz kapanmamış), sadece ondan önceki satırlar güvenilir şekilde kapanmış
+    sayılıyor. Bu kontrol edilmezse indikatörler/karar tamamlanmamış bir mum üzerinden
+    hesaplanabilirdi. Kaçırılan mumlar `fetch_ohlcv`'in her seferinde son `candle_limit`
+    mumu baştan çekmesi sayesinde bir sonraki pollde otomatik geri geliyor ("self-healing");
+    birden fazla yeni mum sırayla işleniyor, boşluk varsa `logger.warning` ile loglanıyor.
+    `app/execution/live_trader.py::LiveTrader`: her yeni mumda `IndicatorEngine` + `DecisionEngine`
+    çalışıp karar logluyor, **`Backtester`/`PaperBroker`/`Portfolio` hiç kurmuyor** — yapısal
+    olarak trade açamayacağının kanıtı, testte doğrudan doğrulandı. `main.py`: `run_live_paper_trading()`
+    + `--live` flag'i. Testler: `tests/test_live_feed.py`, `tests/test_live_trader.py`,
+    `tests/test_main_live.py` (18 test) — ayrıca `live_*.py` dosyalarının kaynağında
+    `create_order`/`apiKey`/`secret` gibi kelimelerin GEÇMEDİĞİNİ doğrulayan, klasörü glob'la
+    tarayan (hardcoded dosya listesi değil) statik bir güvenlik testi. Tüm suite: 235 passed.
+20. **Faz 2 — paper trading motoru, `settings.enable_live_paper_trading` (varsayılan `False`)
+    arkasında.** `LiveTrader` artık `Backtester._step()`'i İMZASINA DOKUNMADAN yeniden kullanıyor
+    (`_ensure_backtester()` ile tembel/cache'li kurulum — aynı örnek tüm pollerde tekrar
+    kullanılıyor ki `Portfolio` bakiyesi doğru birikebilsin). Fiyatlama backtest'in "i+1'in açılışı"
+    yaklaşımı yerine **gerçek zamanlı `fetch_ticker` fiyatı** kullanıyor (kullanıcı kararı:
+    bu turun amacı backtest idealizasyonuyla canlı koşullar arasındaki farkı ölçmek, bayat
+    close fiyatı bu farkı gizlerdi) — `BinanceProvider.fetch_ticker(symbol)` eklendi, aynı
+    ccxt-hata -> `DataProviderError` deseniyle. `app/execution/live_state_store.py::LiveStateStore`:
+    pozisyon/bakiye kalıcılığı, `data/live_state.json`, atomic write (temp dosya + `os.replace`).
+    `restore_into()` **Portfolio/PortfolioManager'ı YERİNDE MUTATE EDİYOR, referansı DEĞİŞTİRMİYOR**
+    — `PaperBroker` zaten belirli bir `Portfolio` nesnesine referans tutuyor, referansı
+    değiştirmek broker'ı sessizce eski/kopuk bir nesneye yazar hale getirirdi. Yan düzeltme
+    (kullanıcı kararı): `app/analytics/performance_db.py::PerformanceDatabase.save()` da aynı
+    atomic-write desenine geçirildi — `enable_voting=True` ile canlı çalışırken her trade
+    kapanışında tekrar tekrar yazılacağı için eksik atomicity artık teorik değil gerçek bir
+    bozulma riskiydi. Testler: `tests/test_live_state_store.py` (8 test), `tests/test_live_trader.py`'e
+    6 yeni test (aynı Backtester'ın tekrar kullanıldığı, `_step` reuse'unun trade açtığı,
+    fiyatın ticker'dan geldiği VE mum kapanışından GELMEDİĞİ — mum close'undan kasıtlı olarak
+    500 birim uzak bir ticker fiyatıyla doğrulandı, state'in her mumda kaydedildiği, state'in
+    yeniden başlatmada geri yüklendiği), `tests/test_binance_provider.py`'e `fetch_ticker`
+    testleri, `tests/test_performance_database.py`'e atomic-write regresyon testi. Güvenlik
+    testi genişletildi (kullanıcı isteği): dosya listesi hardcoded DEĞİL, `app/execution/live_*.py`
+    glob'u `live_state_store.py`'yi OTOMATİK kapsıyor, ayrıca "en az 3 dosya tarandı" savunma
+    kontrolü eklendi (glob'un sessizce boş eşleşmesine karşı). **Ders:** ilk implementasyonda
+    `LiveStateStore.FILE` bazı testlerde izole edilmemişti, bu da GERÇEK `data/live_state.json`'a
+    yazıp bir SONRAKİ testin o sızıntıyı restore etmesine (ve yanlış pozisyon/fiyatla test
+    başarısız olmasına) yol açtı — modül genelinde `autouse` bir `tmp_path` izolasyon fixture'ı
+    ekleyerek düzeltildi, sızan dosya silindi. Tüm suite: 256 passed.
+
+Faz 3 (uzun süreli çalışma dayanıklılığı — try/except'li ana döngü, log rotasyonu,
+bellek birikimi yönetimi) henüz yapılmadı, bu bölüm o tamamlanınca güncellenecek.
 
 ## Bilinen sorunlar
 
@@ -413,8 +536,8 @@ Tüm suite bu turdan sonra: 204 passed.
    `logger.warning(...)` çağırıyor, `except: pass` yok. Muhtemelen son commit
    (`84190e2 "Corrections to code"`) bunu zaten düzeltmiş. `git log -- app/decision/decision_engine.py`
    ile teyit edildi.
-5. ⚠️ **BİLİNEN SINIRLAMA (belgelendi, düzeltilmedi — 2026-08-11, `feature/multi-position-backtester`
-   branch'inde eklendi, henüz main'e merge edilmedi)** — `Backtester._run_multi()`/
+5. ⚠️ **BİLİNEN SINIRLAMA (belgelendi, düzeltilmedi — 2026-08-11, "Beşinci tur"da eklendi,
+   main'e merge edildi)** — `Backtester._run_multi()`/
    `_align_timestamps()` (çoklu-sembol/çoklu-pozisyon backtest) her sembolün indikatörlerini
    kendi TAM/hizalanmamış serisi
    üzerinde hesaplıyor (warmup'ın doğru kalması için — hizalamadan ÖNCE hesaplanmazsa EMA/RSI
