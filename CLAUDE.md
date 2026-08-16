@@ -47,7 +47,7 @@ BinanceProvider.fetch_ohlcv
   portföyle çoklu-sembol backtest çalıştırır (bkz. "Beşinci tur").
 - `--live` — `run_live_paper_trading()`: `settings.symbols[0]` için süresiz canlı döngü,
   `settings.enable_live_paper_trading`'e göre ya sadece gözlem ya gerçek paper trading
-  yapar (bkz. "Altıncı tur", DEVAM EDİYOR).
+  yapar (bkz. "Altıncı tur").
 
 `Backtester.run()` her mum için `DecisionEngine.evaluate(history)` çağırıp
 `PaperBroker` üzerinden pozisyon açıp kapatıyor; risk tarafında
@@ -442,7 +442,7 @@ sadece tek-seferlik `Decision` döndürüyor), bilinçli olarak dokunulmadı.
 
 Tüm suite bu turdan sonra: 217 passed.
 
-## Altıncı tur: canlı veri akışı + paper trading (feature/live-paper-trading, Faz 1-3 tamamlandı, main'e merge bekleniyor, 2026-08-11)
+## Altıncı tur: canlı veri akışı + paper trading (Faz 1-3 tamamlandı, main'e merge edildi ve feature/live-paper-trading dalı silindi, 2026-08-11)
 
 Roadmap'teki "Paper Trading"i gerçekleştiren, ilk kez UZUN SÜRE ÇALIŞAN gerçek-zamanlı bir
 döngü ekleyen tur (önceki tüm modlar tek-seferlik/offline). Önce kodsuz bir PLAN onaylandı;
