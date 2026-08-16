@@ -24,6 +24,17 @@ class SortinoRatio:
         ]
 
         if not downside_returns:
+            # No period fell below the target: the denominator (downside
+            # deviation) is 0. Since downside_returns is only empty when
+            # every return is >= target_return, mean_return - target_return
+            # is never negative here - collapsing this to 0.0 would make an
+            # all-win window read identically to a genuinely flat/no-edge
+            # one, which is exactly what misled walk-forward interpretation.
+            excess = mean_return - target_return
+
+            if excess > 0:
+                return float("inf")
+
             return 0.0
 
         downside_variance = sum(

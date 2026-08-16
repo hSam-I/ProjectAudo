@@ -30,6 +30,16 @@ class SharpeRatio:
         std = math.sqrt(variance)
 
         if std == 0:
+            # Zero variance: the ratio's denominator is 0, so it is only
+            # truly undefined (0.0) when there is also no excess return.
+            # A nonzero constant excess return with zero risk is a real,
+            # unbounded reward-to-risk outcome, not "no edge" - collapsing
+            # it to 0.0 would be indistinguishable from a genuinely flat
+            # or bad result.
+            if mean > 0:
+                return float("inf")
+            if mean < 0:
+                return float("-inf")
             return 0.0
 
         sharpe = (mean / std) * math.sqrt(252)

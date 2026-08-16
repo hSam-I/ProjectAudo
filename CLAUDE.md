@@ -585,3 +585,24 @@ Tüm suite bu turdan sonra: 261 passed.
    verebilir. Kasıtlı olarak düzeltilmedi — kapsamı ayrı bir karar (ör. gap'li sembolleri
    tamamen atlamak ya da indikatörleri hizalama SONRASI yeniden hesaplamak, ikincisi warmup'ı
    bozar) gerektiriyor, bu turun kapsamı dışında bırakıldı.
+6. ✅ **DÜZELTİLDİ (2026-08-16)** — `SharpeRatio.calculate()`/`SortinoRatio.calculate()`
+   sıfır standart sapma/sıfır downside-deviation durumunda (ör. tüm periyotlar kazançlı,
+   `test_ema_rsi_walk_forward.py`'deki all-win pencereler) sessizce `0.0` döndürüyordu —
+   bu, gerçekten "edge yok/düz" bir sonuçla ayırt edilemiyordu (`profit_factor()`'daki
+   madde 2'deki 0/inf sorununa benzer, ayrı bir kod yolu). Fix: sıfır varyans/deviation
+   durumunda ortalama getiriye (`mean`/`mean_return - target_return`) bakılıp işaretine göre
+   `float("inf")`/`float("-inf")` (Sharpe için ikisi de mümkün, Sortino için sadece `+inf` —
+   `downside_returns` boşsa tanım gereği ortalama `target_return`'ün altına inemez) ya da
+   gerçekten düz/getirisiz durumda (`mean == 0`) `0.0` dönüyor. `float("inf")` tercih edildi
+   (`None` ya da string sentinel değil) çünkü: (1) `main.py`'nin `f"{...:.2f}"` formatlaması
+   sorunsuz çalışıyor ("inf" basılıyor), (2) dönüş tipi hâlâ `float` kalıyor, karşılaştırma
+   operatörleri (`>0` gibi mevcut testlerde kullanılan) bozulmuyor, (3) `cagr()`'daki
+   `-1.0` sentinel deseniyle tutarlı (adlandırılmış float sentinel, None değil). Bu değerlerin
+   herhangi bir JSON çıktısına (research_report.json/live_state.json/strategy_stats.json/web
+   dashboard API) yazılıp yazılmadığı ayrıca kontrol edildi — hiçbiri Sharpe/Sortino/Calmar/CAGR
+   taşımıyor, sadece main.py konsol çıktısında kullanılıyorlar, bu yüzden `json.dump`'ın
+   `Infinity` yazması bugün için bir sorun değil (ileride bir JSON çıktısına eklenirse hatırlanmalı).
+   `tests/test_sharpe_ratio.py`/`test_sortino_ratio.py`'e sıfır-varyans/sıfır-downside
+   birim testleri, `tests/test_performance.py`'deki `test_sortino_ratio_no_downside_returns_zero`
+   `test_sortino_ratio_no_downside_returns_infinite` olarak güncellendi + flat-history=0.0
+   testleri eklendi. Tüm suite: 269 passed.
