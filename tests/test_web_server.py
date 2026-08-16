@@ -172,3 +172,55 @@ def test_live_page_renders_when_decisions_have_no_ohlc(client):
 
     assert response.status_code == 200
     assert "No price data logged yet" in response.text
+
+
+def test_live_page_notes_when_older_decisions_lack_price_data(client):
+    """
+    The transition-window note (see charts.candlestick_chart_omits_older_entries)
+    only makes sense - and should only appear - when the decision log is
+    a genuine mix of pre-upgrade (no OHLC) and post-upgrade (OHLC) entries.
+    """
+
+    import pandas as pd
+
+    from app.core.enums import Signal
+    from app.core.time_utils import utc_now
+    from app.market.regime import MarketRegime
+
+    LiveStatusStore.save(
+        symbol="BTC/USDT",
+        mode="observe",
+        started_at=str(utc_now()),
+        restart_count=0,
+        last_poll_at=str(utc_now()),
+        next_poll_due_at=str(utc_now()),
+        poll_count=2,
+        error_count=0,
+        last_error=None,
+    )
+
+    # Old format: no candle.
+    LiveDecisionLog.append(
+        timestamp=str(utc_now() - pd.Timedelta(hours=1)),
+        symbol="BTC/USDT",
+        raw_signal=Signal.HOLD,
+        signal=Signal.HOLD,
+        score=5,
+        regime=MarketRegime.RANGING,
+    )
+
+    # New format: has a candle.
+    LiveDecisionLog.append(
+        timestamp=str(utc_now()),
+        symbol="BTC/USDT",
+        raw_signal=Signal.HOLD,
+        signal=Signal.HOLD,
+        score=10,
+        regime=MarketRegime.RANGING,
+        candle={"open": 100.0, "high": 105.0, "low": 99.0, "close": 103.0},
+    )
+
+    response = client.get("/live")
+
+    assert response.status_code == 200
+    assert "don't have price data logged yet" in response.text

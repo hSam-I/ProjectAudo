@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 from app.config.paths import TEMPLATES_DIR
 from app.web.charts import (
     candlestick_chart,
+    candlestick_chart_omits_older_entries,
     score_chart,
     signal_distribution_chart,
 )
@@ -60,6 +61,9 @@ def live_status(request: Request):
         context={
             "request": request,
             "candlestick_chart": candlestick_chart(
+                data["chart_decisions"]
+            ),
+            "candlestick_omits_older_entries": candlestick_chart_omits_older_entries(
                 data["chart_decisions"]
             ),
             "score_chart": score_chart(

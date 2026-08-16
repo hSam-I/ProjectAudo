@@ -11,6 +11,7 @@ signal separation, a threshold line) worth pinning directly.
 from app.decision.signal_filter import SignalFilter
 from app.web.charts import (
     candlestick_chart,
+    candlestick_chart_omits_older_entries,
     score_chart,
     signal_distribution_chart,
 )
@@ -152,6 +153,55 @@ def test_candlestick_chart_hides_the_rangeslider():
     html = candlestick_chart(decisions)
 
     assert '"rangeslider":{"visible":false}' in html.replace(" ", "")
+
+
+# ---------------------------------------------------------------------
+# candlestick_chart_omits_older_entries
+# ---------------------------------------------------------------------
+
+
+def test_omits_older_entries_is_false_for_an_empty_list():
+
+    assert candlestick_chart_omits_older_entries([]) is False
+
+
+def test_omits_older_entries_is_false_when_none_have_ohlc():
+    """
+    "Nothing has price data yet" is already explained by candlestick_chart()'s
+    own fallback text - this flag is specifically for the partial-mix
+    transition state, not the all-missing state.
+    """
+
+    decisions = [
+        _entry("2024-01-01 00:00:00"),
+        _entry("2024-01-01 01:00:00"),
+    ]
+
+    assert candlestick_chart_omits_older_entries(decisions) is False
+
+
+def test_omits_older_entries_is_false_when_all_have_ohlc():
+    """
+    The normal, post-transition state (once old entries age out of
+    CHART_HISTORY) - no note needed.
+    """
+
+    decisions = [
+        _entry("2024-01-01 00:00:00", candle=_candle()),
+        _entry("2024-01-01 01:00:00", candle=_candle()),
+    ]
+
+    assert candlestick_chart_omits_older_entries(decisions) is False
+
+
+def test_omits_older_entries_is_true_for_a_genuine_mix():
+
+    decisions = [
+        _entry("2024-01-01 00:00:00"),  # old format, no candle
+        _entry("2024-01-01 01:00:00", candle=_candle()),
+    ]
+
+    assert candlestick_chart_omits_older_entries(decisions) is True
 
 
 # ---------------------------------------------------------------------

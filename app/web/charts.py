@@ -96,6 +96,37 @@ def _empty_chart_fallback(title: str, message: str, height: int) -> str:
     )
 
 
+def _has_ohlc(entry: dict) -> bool:
+
+    return all(
+        isinstance(entry.get(key), (int, float))
+        for key in ("open", "high", "low", "close")
+    )
+
+
+def candlestick_chart_omits_older_entries(decisions: list[dict]) -> bool:
+    """
+    True only during the transition window right after OHLC was added
+    to LiveDecisionLog: `decisions` is a genuine MIX of entries with and
+    without price data (some old, some new) - not "none have it yet"
+    (candlestick_chart() already explains that with its own fallback
+    text) and not "all have it" (the normal, post-transition state).
+    The caller uses this to show a small note under the candlestick
+    chart explaining why it plots a shorter span than score_chart()/the
+    decisions table, which show every entry regardless of price data.
+    This resolves itself once the OHLC-less entries age out of
+    CHART_HISTORY - no action needed, just don't let it look broken
+    while it's happening.
+    """
+
+    if not decisions:
+        return False
+
+    has_ohlc_flags = [_has_ohlc(entry) for entry in decisions]
+
+    return any(has_ohlc_flags) and not all(has_ohlc_flags)
+
+
 def candlestick_chart(decisions: list[dict]) -> str:
     """
     Candlestick price chart with BUY/SELL decision markers overlaid.
@@ -117,14 +148,7 @@ def candlestick_chart(decisions: list[dict]) -> str:
     line explains.
     """
 
-    candles = [
-        entry
-        for entry in decisions
-        if all(
-            isinstance(entry.get(key), (int, float))
-            for key in ("open", "high", "low", "close")
-        )
-    ]
+    candles = [entry for entry in decisions if _has_ohlc(entry)]
 
     if not candles:
         return _empty_chart_fallback(

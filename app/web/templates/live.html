@@ -364,6 +364,18 @@ Price &amp; Signals
 
 {{ candlestick_chart|safe }}
 
+{% if candlestick_omits_older_entries %}
+
+<p class="muted-note mb-0 mt-2" style="font-size:0.85rem;">
+
+Some older decisions in this window don't have price data logged yet and are
+omitted from this chart (they still appear in Decision Score and Recent
+Decisions below). This resolves automatically once those entries age out.
+
+</p>
+
+{% endif %}
+
 </div>
 
 </div>
