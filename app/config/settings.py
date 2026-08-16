@@ -1,11 +1,13 @@
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.config.paths import PROJECT_ROOT
+
 
 class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -146,6 +148,10 @@ class Settings(BaseSettings):
     enable_live_paper_trading: bool = False
 
     live_error_retry_seconds: int = 30
+
+    web_host: str = "127.0.0.1"
+
+    web_port: int = 8000
 
     # =====================================================
     # VALIDATORS

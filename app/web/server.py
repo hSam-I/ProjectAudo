@@ -1,10 +1,11 @@
-from pathlib import Path
-
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from app.config.paths import TEMPLATES_DIR
+from app.web.charts import signal_distribution_chart
 from app.web.dashboard_data import load_dashboard_data
+from app.web.live_status_data import load_live_status
 
 
 app = FastAPI(
@@ -17,7 +18,7 @@ app = FastAPI(
 
 templates = Jinja2Templates(
 
-    directory=Path("app/web/templates")
+    directory=TEMPLATES_DIR
 
 )
 
@@ -35,6 +36,28 @@ def home(request: Request):
 
         context={
             "request": request,
+            **data,
+        },
+
+    )
+
+
+@app.get("/live", response_class=HTMLResponse)
+def live_status(request: Request):
+
+    data = load_live_status()
+
+    return templates.TemplateResponse(
+
+        request=request,
+
+        name="live.html",
+
+        context={
+            "request": request,
+            "signal_distribution_chart": signal_distribution_chart(
+                data["decisions"]
+            ),
             **data,
         },
 

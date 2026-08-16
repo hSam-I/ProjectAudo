@@ -35,8 +35,10 @@ BinanceProvider.fetch_ohlcv
   -> TradeJournal / EquityReport / EquityChart / DrawdownChart / TradeDistributionChart
 ```
 
-`main.py` artık 5 çalışma modu destekliyor (`python -m app.main [--walk-forward|--scan|
---multi-position|--live]`):
+`main.py` artık 7 çalışma modu destekliyor (`python -m app.main [--walk-forward|--scan|
+--multi-position|--live|--web|--live-status]`, hepsi tek bir `argparse` mutually-exclusive
+group'ta — ikisini birden vermek sessizce birini yutmak yerine argparse hatası verir,
+bkz. "Sekizinci tur"):
 - (flagsiz) `main()` — yukarıdaki tek-sembol backtest zinciri, varsayılan davranış, değişmedi.
 - `--walk-forward` — `run_walk_forward()`: `WalkForwardAnalyzer` pencereleri üzerinde
   aynı `Backtester`'ı tekrar tekrar çalıştırır, konsola özet basar (bkz. "Dördüncü tur" madde 13).
@@ -47,7 +49,16 @@ BinanceProvider.fetch_ohlcv
   portföyle çoklu-sembol backtest çalıştırır (bkz. "Beşinci tur").
 - `--live` — `run_live_paper_trading()`: `settings.symbols[0]` için süresiz canlı döngü,
   `settings.enable_live_paper_trading`'e göre ya sadece gözlem ya gerçek paper trading
-  yapar (bkz. "Altıncı tur").
+  yapar (bkz. "Altıncı tur"). Artık her pollde bir heartbeat (`LiveStatusStore`) ve her
+  karar için bir JSONL satırı (`LiveDecisionLog`) da yazıyor (bkz. "Sekizinci tur").
+- `--web` — `run_web_server()`: `uvicorn`'u `app.web.server:app`'e bağlayıp bloklayan FastAPI
+  sunucusunu başlatır (`/` mevcut dashboard, `/live` YENİ read-only canlı-durum hub'ı,
+  bkz. "Sekizinci tur"). `uvicorn`/`app.web.server` import'u fonksiyon İÇİNDE, main.py
+  tepesinde DEĞİL — `--live` gibi diğer modların `dashboard_data`'nın
+  `Backtester`/`BinanceProvider`/`ScoreEngine` import zincirini gereksiz yere sürüklememesi için.
+- `--live-status` — `run_live_status()`: ayrı bir `--live`/`--web` process'inin diskteki
+  son durumunu (`load_live_status()` üzerinden, ağa hiç çıkmadan) tek seferlik konsola basar
+  (bkz. "Sekizinci tur").
 
 `Backtester.run()` her mum için `DecisionEngine.evaluate(history)` çağırıp
 `PaperBroker` üzerinden pozisyon açıp kapatıyor; risk tarafında
@@ -103,10 +114,15 @@ Ana pipeline'a bağlı olanlar:
   `performance_report.py`, `profit_factor.py`, `expectancy.py`, `average_trade.py`,
   `report_builder.py`) kullanılmıyor. `TradeDistributionChart` sıfır trade'de çöküyordu,
   düzeltildi (bkz. "Üçüncü tur" madde 8).
-- `web/` — FastAPI dashboard (`server.py`, `dashboard_data.py`, `charts.py`)
-- `config/` — `pydantic-settings` tabanlı `Settings` (`.env`'den okur)
+- `web/` — FastAPI dashboard (`server.py`, `dashboard_data.py`, `charts.py`) + YENİ
+  `live_status_data.py::load_live_status()` (`/live` route'unun ve `--live-status`'ün
+  paylaştığı, ağa hiç çıkmayan okuma katmanı) + `templates/live.html` (bkz. "Sekizinci tur").
+- `config/` — `pydantic-settings` tabanlı `Settings` (`.env`'den okur) + YENİ `paths.py`
+  (`PROJECT_ROOT`/`DATA_DIR`/`LOGS_DIR`/`TEMPLATES_DIR`, hepsi mutlak — bkz. "Sekizinci tur").
 - `core/` — `enums.py` (Signal/OrderSide/PositionSide/OrderType/OrderStatus),
-  `indicator_accessor.py` (SignalScorer'ın indikatör okuma yardımcı sınıfı)
+  `indicator_accessor.py` (SignalScorer'ın indikatör okuma yardımcı sınıfı), YENİ
+  `time_utils.py` (`timeframe_to_seconds`/`utc_now`, `live_feed.py`'den çıkarıldı —
+  bkz. "Sekizinci tur").
 - `logging/` — `logger.py`
 - `scanner/` — `MarketScanner` (main.py'ye bağlı değil, sadece `MultiAssetBacktester`
   üzerinden erişilebilir, o da hiçbir yerden çağrılmıyor)
@@ -114,6 +130,8 @@ Ana pipeline'a bağlı olanlar:
   `PaperBroker.execute_buy()` bir `Order` oluşturup dolduruyor ama pending-order/limit-order
   yolu hiç tetiklenmiyor, backtest her zaman anlık market fill kullanıyor).
   `live_feed.py`, `live_trader.py`, `live_state_store.py` — `--live` CLI modu, bkz. "Altıncı tur".
+  YENİ `live_status_store.py` (heartbeat: pid/mod/poll-error sayaçları) ve
+  `live_decision_log.py` (append-only JSONL karar geçmişi) — bkz. "Sekizinci tur".
 
 **Opsiyonel/flag ile bağlı (Dördüncü tur, 2026-08-11 — main.py'ye artık bağlı ama
 varsayılan davranışı DEĞİŞTİRMİYOR, hepsi opt-in):**
@@ -561,6 +579,141 @@ kod yazmaya başladıktan sonra tasarımı değiştirmekten çok daha ucuza geli
     dışında hiçbir dosya değişmedi, flag yok (koruma/doğruluk düzeltmesi). Tüm suite: 275 passed.
 
 Tüm suite bu turdan sonra: 275 passed.
+
+## Sekizinci tur: canlı bot durum hub'ı — web + CLI (branch `feature/live-status-hub`,
+main'e merge bekleniyor, 2026-08-16)
+
+`python -m app.main --live` süresiz çalışan, ayrı bir OS process — belleği paylaşmıyor.
+Bu turdan önce durumunu görmenin tek yolu bir terminal penceresindeki log satırlarını
+izlemekti; gözlem modunda disk'e HİÇBİR ŞEY yazılmıyordu, paper-trading modunda bile
+`data/live_state.json` sadece bakiye/trade yazıyordu (ne wall-clock zaman damgası, ne
+"süreç hâlâ hayatta mı" bilgisi, ne hata/retry sayacı vardı). Önce kodsuz bir PLAN
+onaylandı (kullanıcı kararları: web hub + CLI özeti, paylaşılan tek bir okuma katmanı
+üzerinden; sayfa meta-refresh ile yenilenir; `main.py`'ye `--web` flag'i eklenir). Bir
+Plan-agent kritiği (kod yazılmadan önce) tasarımda 4 gerçek kusur buldu, bunlar plana
+karar olarak işlendi: (1) güvenlik glob'unun isim eşleşmesine bağlı olması — yeni karar-log
+dosyasının `decision_log.py` değil `live_decision_log.py` olması gerektiği (aksi halde
+`app/execution/live_*.py`'yi tarayan mevcut güvenlik testinin dışında kalırdı); (2) test
+izolasyonu — yeni store'ların `FILE`'ının da mevcut autouse fixture'a eklenmesi gerektiği
+(aksi halde "Altıncı tur"da zaten belgelenen `data/` sızıntısı tekrarlanırdı); (3) telemetri
+yazmalarının trading döngüsünü asla kesmemesi (kendi try/except'i, Windows'ta bir okuyucu
+dosyayı açık tutarken `os.replace()`'ın `PermissionError` atabileceği somut riskiyle); (4)
+heartbeat'in "canlı" iddiasının abartılı olmaması — üç durumlu (`OK`/`OVERDUE`/`NO DATA`)
+dürüst bir rozet, yeşil "ALIVE" rozeti yok. Sonra plan tek seferde değil, beş fazda,
+her fazdan sonra tam suite çalıştırıp onay alınarak uygulandı.
+
+**Faz 1 — path ankorlama/temel.** `app/config/paths.py` (`PROJECT_ROOT =
+Path(__file__).resolve().parents[2]`, `DATA_DIR`/`LOGS_DIR`/`TEMPLATES_DIR` hepsi
+mutlak) ve `app/core/time_utils.py` (`timeframe_to_seconds`/`utc_now`,
+`app/execution/live_feed.py`'den ÇIKARILDI — o dosya ccxt'ye bağımlı `BinanceProvider`'ı
+import ediyor, ağa hiç çıkmayan `--live-status`/web okuma katmanının bunu import ederken
+ccxt'yi sürüklememesi için; `live_feed.py` ikisini de re-export ediyor, mevcut
+`tests/test_live_feed.py`'nin import satırı kırılmadı). `LiveStateStore.FILE`,
+`PerformanceDatabase.FILE`, logger'ın `LOG_DIR`'ı, `server.py`'nin Jinja2 template
+dizini, `Settings.env_file` — hepsi bu mutlak path'lere geçirildi (önceden hepsi process
+CWD'sine göreliydi: bot bir CWD'den, hub başka bir CWD'den çalıştırılırsa farklı `data/`
+klasörlerine sessizce yazıp/okuyabilirlerdi). `settings.web_host="127.0.0.1"`/`web_port=8000`
+eklendi (`0.0.0.0` LAN'a açar, kimlik doğrulama yok — kabul edilemez, kullanıcı kararı).
+`.gitignore`'a `data/` eklendi (daha önce ignore edilmiyordu ama hiç commit edilmiş içeriği
+de yoktu). `requirements-dev.txt`'e `httpx` eklendi (FastAPI `TestClient` için). Davranış
+korunarak yapılan bir refactor: tüm 5 call site zaten testlerde class-attribute olarak
+monkeypatch'leniyordu, risk düşüktü. Tüm suite: 277 passed.
+
+**Faz 2 — yeni store'lar.** `app/execution/live_status_store.py::LiveStatusStore` —
+heartbeat (`version`/`pid`/`symbol`/`mode`/`started_at`/`restart_count`/`last_poll_at`/
+`next_poll_due_at`/`poll_count`/`error_count`/`last_error`), `LiveStateStore` ile AYNI
+atomic-write deseni (temp dosya + `os.replace`). `app/execution/live_decision_log.py::LiveDecisionLog`
+— append-only JSONL (`data/decisions.jsonl`), `tail(n)` dosyanın SONUNDAN blok blok
+`seek` ederek okuyor (haftalarca büyüyen bir dosyada her hub yenilemesinde dosyanın
+TAMAMINI okumak yerine — sadece son birkaç satır gösterildiği için performans kaybı
+olurdu), kırpılmış son satırı (`JSONDecodeError`) atlıyor, `(symbol, timestamp)` ile
+read-time dedup yapıyor (restart'ta aynı mumun tekrar loglanması durumunda en son yazılan
+kopyayı tutuyor). Test yazarken gerçek bir bug bulundu ve düzeltildi:
+`_read_last_lines()` dosya sondaki `"\n"` karakteriyle `split()` yapınca son elemanın boş
+string olduğunu hesaba katmıyordu — bu, `n`'den fazla toplam satırlı bir dosyada gerçek
+son satırı `[-n:]` diliminin dışına itiyordu (`tests/test_live_decision_log.py`'deki
+`test_tail_returns_newest_first`, 5 kayıttan `tail(3)` istendiğinde yakaladı). `regime`
+enum'u (`MarketRegime(str, Enum)`) `json.dump`'a DOĞRUDAN veriliyor (`str()` değil) —
+`json` modülü str-alt-sınıfları kendi karakter verisiyle serileştiriyor, bu yüzden
+`"RANGING"` yazılıyor, `"MarketRegime.RANGING"` değil (ayrıca test edildi). Docstring'lerde
+"secret" alt-string'i içeren hiçbir ifade kullanılmadı (güvenlik glob testinin bu yeni
+dosyaları da otomatik taradığını doğrulayan testler eklendi). Testler:
+`tests/test_live_status_store.py`, `tests/test_live_decision_log.py` (13 yeni test). Tüm
+suite: 290 passed.
+
+**Faz 3 — okuma katmanı + web route.** `app/web/live_status_data.py::load_live_status()`
+— `LiveStatusStore`/`LiveStateStore` (sadece paper modunda)/`LiveDecisionLog`'u birleştirip
+görüntüleme-hazır bir dict döndürüyor. **Hiç ağ çağrısı yok** (bu, `load_dashboard_data()`'nın
+TERSİ — o her zaman taze piyasa verisi çekiyor; test edildi: `BinanceProvider.fetch_ohlcv`/
+`fetch_ticker` çağrılırsa `AssertionError` fırlatacak şekilde monkeypatch'lenip
+`load_live_status()`'un hâlâ çalıştığı doğrulandı). `LiveStateCorruptError` burada AÇIKÇA
+yakalanıp "state dosyası bozuk" görüntü durumuna çevriliyor (mevcut sözleşme `run_forever()`
+için "asla yutma"ydı, ama bu salt bir görüntüleyici — çökmek yerine göstermeli).
+`FileNotFoundError`/`PermissionError` de tolere ediliyor (Windows'ta bir okuyucunun eşzamanlı
+atomic-write ile yarışabilmesine karşı). Sağlık durumu: `next_poll_due_at` vs `utc_now()`
+karşılaştırılıp `OK`/`OVERDUE` (+ kaç saniye geciktiği)/`NO DATA` (hiç poll olmamışsa)
+döndürülüyor. `app/web/charts.py`'e `signal_distribution_chart()` eklendi (son kararların
+sinyal dağılımı, boş liste durumunda `TradeDistributionChart`'ın sıfır-trade fix'iyle aynı
+ruhla "No data" barı — çökme yok). `app/web/templates/live.html` — meta-refresh (30sn),
+üç durumlu sağlık rozeti, süreç bilgisi tablosu, paper-trading modundaysa bakiye/açık
+pozisyon sayısı (yoksa "gözlem modu, trade yok" notu), son kararlar tablosu.
+`app/web/server.py`'e `GET /live` route'u eklendi. Testler: `tests/test_live_status_data.py`
+(9 test), `tests/test_web_server.py` (bu proje için web app'in İLK testi — `TestClient` ile
+hem `/` hem `/live`, veri yokken/bozukken 500 yerine 200 döndüğü). Tüm suite: 303 passed.
+
+**Faz 4 — telemetri entegrasyonu (en riskli faz, `LiveTrader`/`run_forever()`'a dokunuyor).**
+`LiveTrader.__init__` artık `LiveStatusStore.load()` ile önceki `restart_count`'ı devralıp
+1 artırıyor (önceki heartbeat dosyası bozuksa — `live_state.json`'dan farklı olarak, burada
+korunacak trading geçmişi yok — sessizce 0'a resetleniyor, sert bir hata fırlatmıyor). Yeni
+in-memory sayaçlar `self._poll_count`/`self._error_count`/`self._last_error`/`self._started_at`/
+`self._last_poll_at` — isimler BİLİNÇLİ OLARAK `broker`/`portfolio`/`portfolio_manager`
+YASAK-listesinden kaçınıyor (mevcut `test_live_trader_never_constructs_a_broker_or_portfolio`
+bunları kontrol ediyor, hâlâ yeşil). `run_forever()`'ın döngüsünde, `wait_for_next_candle()`'dan
+ÖNCE (try bloğunun DIŞINDA) her iterasyonda bir heartbeat yazılıyor
+(`feed.seconds_until_next_close()` ile `next_poll_due_at` hesaplanıp `LiveStatusStore.save(...)`
+çağrılıyor) — kendi try/except'i içinde, bir hesaplama/yazma hatası trading döngüsünü ASLA
+kesmiyor (regresyon testiyle doğrulandı: `LiveStatusStore.save` bir `TypeError` fırlatacak
+şekilde bozulduğunda `run_forever()` hâlâ normal akışına devam ediyor, `_error_count`
+ARTMIYOR — bu, telemetri hatasının gerçek bir poll hatasıyla YANLIŞLIKLA karıştırılmadığının
+kanıtı). Başarılı `poll_once()` sonrası `_poll_count`/`_last_poll_at` güncelleniyor; genel
+`except Exception` bloğuna `_error_count += 1`/`_last_error = str(e)` eklendi.
+`_observe_step()`/`_paper_trade_step()`'e `LiveDecisionLog.append(...)` eklendi (aynı
+şekilde failure-isolated). `_paper_trade_step()`'te karar, `Backtester._step()`'in kendi
+İÇ `evaluate()` çağrısından AYRI olarak bir kez daha (`self.decision_engine.evaluate(enriched)`)
+hesaplanıyor — aynı `DecisionEngine` örneği + aynı `enriched` df olduğu için sonuç birebir
+aynı, ama bu sayede `_step()`'in imzası/sözleşmesi (ve ona pinlenmiş TÜM testler) hiç
+değişmedi; bu zaten `main.py`'nin bugün de yaptığı bir "redundant re-evaluate" deseni
+(bkz. dosyanın en üstündeki "Gerçek çalıştırma akışı" bölümü). Test dosyasındaki autouse
+fixture, `LiveStatusStore.FILE`/`LiveDecisionLog.FILE`'ı da kapsayacak şekilde genişletildi
+(genişletilmeseydi HER `LiveTrader` construction'ı gerçek `data/live_status.json`'a
+dokunurdu — plan-kritiğinin önceden işaretlediği tam risk). `FakeFeed` test double'ına
+`seconds_until_next_close()` eklendi (yoksa `run_forever()` testleri `AttributeError`'a
+çarpardı — yine plan-kritiğinin bulduğu spesifik risk). Mevcut 13 pinlenmiş test DEĞİŞMEDEN
+yeşil kaldı, 9 yeni test eklendi. Tüm suite: 312 passed.
+
+**Faz 5 — CLI.** `main.py`'ye `--web` (`run_web_server()`: `uvicorn`/`app.web.server`'ı
+FONKSİYON İÇİNDE import edip `uvicorn.run(app, host=settings.web_host, port=settings.web_port)`
+çağırıyor — modül tepesinde DEĞİL, ki `--live` gibi diğer modlar `dashboard_data`'nın ağır
+import zincirini gereksiz yere sürüklemesin) ve `--live-status` (`run_live_status()`:
+`load_live_status()`'u çağırıp tek seferlik konsol özeti basıyor, "hiç çalışmamış"/"bozuk"
+durumlarını ayrı ayrı ele alıyor) flag'leri eklendi. Mevcut argparse `add_argument` çağrıları
+(sıralı, mutually-exclusive OLMAYAN) tek bir `add_mutually_exclusive_group()`'a taşındı —
+öncesinde `--live --web` gibi bir kombinasyon if/elif sırasına göre sessizce sadece birini
+çalıştırırdı, şimdi argparse seviyesinde açık bir hata veriyor (elle doğrulandı:
+`python -m app.main --live --web` -> `error: argument --web: not allowed with argument --live`).
+Testler: `tests/test_main_web.py` (uvicorn.run'ın doğru app/host/port ile çağrıldığı, gerçek
+soket açılmadığı), `tests/test_main_live_status.py` (7 test — never-run/corrupt/healthy/
+overdue/paper-mode/decisions dallarının konsol formatlaması). Tüm suite: 321 passed.
+
+**Elle duman testi (Doğrulama adımı):** `python -m app.main --web` arka planda başlatılıp
+`GET /` ve `GET /live` 200 döndürdüğü doğrulandı; `/live` veri yokken "No live process has
+run yet" gösterdi; `LiveStatusStore.save()`/`LiveDecisionLog.append()` ile gerçek (izole
+olmayan, repo'nun `data/` klasörüne) bir heartbeat + karar yazılıp `/live`'ın bunu
+DOĞRU yansıttığı (poll count, sembol) doğrulandı; sunucu durdurulup `data/` klasörü
+temizlendi (`.gitignore`'da olduğu için commit riski yoktu, ama tertipli bırakmak için
+silindi); `--live-status` tekrar "hiç çalışmamış" mesajını gösterdi.
+
+Tüm suite bu turdan sonra: 321 passed.
 
 ## Bilinen sorunlar
 

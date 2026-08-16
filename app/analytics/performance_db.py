@@ -1,6 +1,7 @@
 import json
 import os
-from pathlib import Path
+
+from app.config.paths import DATA_DIR
 
 
 class PerformanceDatabase:
@@ -8,7 +9,7 @@ class PerformanceDatabase:
     Stores strategy statistics on disk.
     """
 
-    FILE = Path("data/strategy_stats.json")
+    FILE = DATA_DIR / "strategy_stats.json"
 
     @classmethod
     def load(cls):

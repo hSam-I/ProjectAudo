@@ -35,22 +35,28 @@ from app.config.settings import settings
 from app.core.enums import Signal
 from app.data.exceptions import DataProviderError
 from app.decision.decision_engine import Decision, DecisionEngine
+from app.execution.live_decision_log import LiveDecisionLog
 from app.execution.live_state_store import LiveStateCorruptError, LiveStateStore
+from app.execution.live_status_store import LiveStatusStore
 from app.execution.live_trader import LiveTrader
 
 
 @pytest.fixture(autouse=True)
 def _isolate_live_state_store(tmp_path, monkeypatch):
     """
-    Every paper-trading test in this file goes through
-    LiveTrader._ensure_backtester(), which always calls
-    LiveStateStore.restore_into()/save() - without this, those calls
-    would hit the real data/live_state.json, leaking state between
-    test runs (and into the repo itself). Applies to every test here,
-    including observe-only ones, since it's harmless when unused.
+    Every LiveTrader construction now touches LiveStatusStore.load()
+    (restart_count carry-over), and every processed candle touches
+    LiveDecisionLog.append() on top of the existing
+    LiveStateStore.restore_into()/save() calls - without patching all
+    three FILE paths, those calls would hit the real data/ directory,
+    leaking state between test runs (and into the repo itself). Applies
+    to every test here, including observe-only ones, since it's
+    harmless when unused.
     """
 
     monkeypatch.setattr(LiveStateStore, "FILE", tmp_path / "live_state.json")
+    monkeypatch.setattr(LiveStatusStore, "FILE", tmp_path / "live_status.json")
+    monkeypatch.setattr(LiveDecisionLog, "FILE", tmp_path / "decisions.jsonl")
 
 
 class FakeProvider:
@@ -101,6 +107,9 @@ class FakeFeed:
 
     def wait_for_next_candle(self):
         pass
+
+    def seconds_until_next_close(self):
+        return 0.0
 
 
 def _synthetic_df(n: int) -> pd.DataFrame:
@@ -465,6 +474,192 @@ def test_run_forever_stops_immediately_on_corrupt_state(monkeypatch):
 
     assert calls["count"] == 1
     assert sleep_calls == []
+
+
+def test_restart_count_starts_at_zero_with_no_prior_status_file():
+
+    trader = LiveTrader("BTC/USDT", feed=FakeFeed(_synthetic_df(5), _synthetic_df(5).iloc[-1:]))
+
+    assert trader._restart_count == 0
+
+
+def test_restart_count_is_carried_over_and_incremented(tmp_path, monkeypatch):
+
+    from app.core.time_utils import utc_now
+
+    LiveStatusStore.save(
+        symbol="BTC/USDT",
+        mode="observe",
+        started_at=str(utc_now()),
+        restart_count=3,
+        last_poll_at=None,
+        next_poll_due_at=None,
+        poll_count=0,
+        error_count=0,
+        last_error=None,
+    )
+
+    trader = LiveTrader("BTC/USDT", feed=FakeFeed(_synthetic_df(5), _synthetic_df(5).iloc[-1:]))
+
+    assert trader._restart_count == 4
+
+
+def test_corrupt_prior_status_file_resets_restart_count_instead_of_raising(tmp_path, monkeypatch):
+
+    LiveStatusStore.FILE.parent.mkdir(exist_ok=True)
+    LiveStatusStore.FILE.write_text("{not valid json", encoding="utf-8")
+
+    trader = LiveTrader("BTC/USDT", feed=FakeFeed(_synthetic_df(5), _synthetic_df(5).iloc[-1:]))
+
+    assert trader._restart_count == 0
+
+
+def test_run_forever_writes_a_status_heartbeat_before_each_wait(monkeypatch):
+
+    closed = _synthetic_df(5)
+    feed = FakeFeed(closed, closed.iloc[-1:])
+
+    trader = LiveTrader("BTC/USDT", feed=feed)
+
+    calls = {"count": 0}
+
+    def fake_poll_once():
+        calls["count"] += 1
+        if calls["count"] >= 2:
+            raise KeyboardInterrupt
+        return None
+
+    monkeypatch.setattr(trader, "poll_once", fake_poll_once)
+
+    with pytest.raises(KeyboardInterrupt):
+        trader.run_forever()
+
+    saved = LiveStatusStore.load()
+
+    assert saved is not None
+    assert saved["symbol"] == "BTC/USDT"
+    assert saved["mode"] == "observe"
+    assert saved["poll_count"] == 1
+
+
+def test_run_forever_records_error_count_and_last_error(monkeypatch):
+
+    monkeypatch.setattr(settings, "live_error_retry_seconds", 0)
+
+    closed = _synthetic_df(5)
+    feed = FakeFeed(closed, closed.iloc[-1:])
+
+    trader = LiveTrader("BTC/USDT", feed=feed)
+
+    calls = {"count": 0}
+
+    def fake_poll_once():
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise DataProviderError("simulated network blip")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(trader, "poll_once", fake_poll_once)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+
+    with pytest.raises(KeyboardInterrupt):
+        trader.run_forever()
+
+    assert trader._error_count == 1
+    assert "simulated network blip" in trader._last_error
+
+
+def test_heartbeat_write_failure_does_not_break_the_trading_loop(monkeypatch):
+    """
+    Bulgu 3 from the plan: a telemetry write failure (e.g. a
+    TypeError from something non-JSON-serializable, or a Windows
+    PermissionError) must never propagate out of run_forever()'s
+    per-iteration try/except and get treated as a "real" poll error.
+    """
+
+    closed = _synthetic_df(5)
+    feed = FakeFeed(closed, closed.iloc[-1:])
+
+    trader = LiveTrader("BTC/USDT", feed=feed)
+
+    def broken_save(**kwargs):
+        raise TypeError("simulated non-serializable field")
+
+    monkeypatch.setattr(LiveStatusStore, "save", staticmethod(broken_save))
+
+    calls = {"count": 0}
+
+    def fake_poll_once():
+        calls["count"] += 1
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(trader, "poll_once", fake_poll_once)
+
+    with pytest.raises(KeyboardInterrupt):
+        trader.run_forever()
+
+    assert trader._error_count == 0
+    assert calls["count"] == 1
+
+
+def test_observe_step_appends_to_the_decision_log(monkeypatch):
+
+    _force_decision(monkeypatch, signal=Signal.BUY)
+
+    closed = _synthetic_df(settings.warmup_candles + 5)
+
+    feed = FakeFeed(closed, closed.iloc[-1:])
+
+    trader = LiveTrader("BTC/USDT", feed=feed)
+
+    trader.poll_once()
+
+    entries = LiveDecisionLog.tail(10)
+
+    assert len(entries) == 1
+    assert entries[0]["symbol"] == "BTC/USDT"
+    assert entries[0]["signal"] == "BUY"
+
+
+def test_paper_trade_step_appends_to_the_decision_log(monkeypatch):
+
+    monkeypatch.setattr(settings, "enable_live_paper_trading", True)
+
+    _force_decision(monkeypatch, signal=Signal.HOLD)
+
+    closed = _synthetic_df(settings.warmup_candles + 5)
+
+    feed = FakeFeed(closed, closed.iloc[-1:])
+
+    trader = LiveTrader("BTC/USDT", feed=feed)
+
+    trader.poll_once()
+
+    entries = LiveDecisionLog.tail(10)
+
+    assert len(entries) == 1
+    assert entries[0]["signal"] == "HOLD"
+
+
+def test_decision_log_write_failure_does_not_break_poll_once(monkeypatch):
+
+    _force_decision(monkeypatch, signal=Signal.BUY)
+
+    closed = _synthetic_df(settings.warmup_candles + 5)
+
+    feed = FakeFeed(closed, closed.iloc[-1:])
+
+    trader = LiveTrader("BTC/USDT", feed=feed)
+
+    def broken_append(**kwargs):
+        raise TypeError("simulated non-serializable field")
+
+    monkeypatch.setattr(LiveDecisionLog, "append", staticmethod(broken_append))
+
+    # Must not raise.
+    trader.poll_once()
+
+    assert len(feed.processed_timestamps) == 1
 
 
 def test_live_execution_modules_never_reference_real_order_placement():

@@ -13,6 +13,9 @@ __pycache__/
 logs/
 *.log
 
+# Runtime data (live paper-trading state, strategy stats, decision log)
+data/
+
 # VS Code
 .vscode/
 

@@ -1,10 +1,15 @@
 import time
 
+import pandas as pd
+
 from app.backtesting.backtester import Backtester
 from app.config.settings import settings
+from app.core.time_utils import utc_now
 from app.decision.decision_engine import DecisionEngine
+from app.execution.live_decision_log import LiveDecisionLog
 from app.execution.live_feed import LiveFeed
 from app.execution.live_state_store import LiveStateCorruptError, LiveStateStore
+from app.execution.live_status_store import LiveStatusStore
 from app.indicators.indicator_engine import IndicatorEngine
 from app.logging.logger import logger
 
@@ -39,6 +44,36 @@ class LiveTrader:
 
         self.backtester: Backtester | None = None
 
+        # Deliberately not named broker/portfolio/portfolio_manager -
+        # test_live_trader_never_constructs_a_broker_or_portfolio()
+        # asserts those three attribute names are absent whenever no
+        # trade could have been opened.
+        self._started_at = utc_now()
+        self._poll_count = 0
+        self._error_count = 0
+        self._last_error: str | None = None
+        self._last_poll_at = None
+
+        try:
+            previous_status = LiveStatusStore.load()
+        except LiveStateCorruptError as e:
+            # Unlike live_state.json (the actual paper-trading
+            # portfolio), a corrupt heartbeat file carries no trading
+            # history worth protecting - starting fresh (restart_count
+            # resets to 0) is safe and lets the loop come up instead of
+            # refusing to start over a stale telemetry file.
+            logger.warning(
+                f"{symbol}: previous live_status.json is corrupt, "
+                f"restart_count will reset to 0: {e}"
+            )
+            previous_status = None
+
+        self._restart_count = (
+            previous_status["restart_count"] + 1
+            if previous_status is not None
+            else 0
+        )
+
     def run_forever(self) -> None:
         """
         Runs indefinitely. Each poll is wrapped so a transient failure
@@ -67,11 +102,16 @@ class LiveTrader:
 
         while True:
 
+            self._save_status_heartbeat()
+
             self.feed.wait_for_next_candle()
 
             try:
 
                 self.poll_once()
+
+                self._poll_count += 1
+                self._last_poll_at = utc_now()
 
             except LiveStateCorruptError:
 
@@ -85,12 +125,51 @@ class LiveTrader:
 
             except Exception as e:
 
+                self._error_count += 1
+                self._last_error = str(e)
+
                 logger.error(
                     f"{self.symbol}: error during live poll, retrying "
                     f"in {settings.live_error_retry_seconds}s: {e}"
                 )
 
                 time.sleep(settings.live_error_retry_seconds)
+
+    def _save_status_heartbeat(self) -> None:
+        """
+        Failure-isolated on purpose: a heartbeat write is pure
+        telemetry, so a transient error here (e.g. a Windows reader
+        holding the file open across an os.replace()) must never break
+        the trading loop the way a real poll error would.
+        """
+
+        try:
+
+            next_poll_due_at = utc_now() + pd.Timedelta(
+                seconds=self.feed.seconds_until_next_close()
+            )
+
+            LiveStatusStore.save(
+                symbol=self.symbol,
+                mode=(
+                    "paper"
+                    if settings.enable_live_paper_trading
+                    else "observe"
+                ),
+                started_at=self._started_at,
+                restart_count=self._restart_count,
+                last_poll_at=self._last_poll_at,
+                next_poll_due_at=next_poll_due_at,
+                poll_count=self._poll_count,
+                error_count=self._error_count,
+                last_error=self._last_error,
+            )
+
+        except Exception as e:
+
+            logger.warning(
+                f"{self.symbol}: failed to write live status heartbeat: {e}"
+            )
 
     def poll_once(self) -> None:
 
@@ -134,7 +213,19 @@ class LiveTrader:
             f"score={decision.score} | regime={decision.regime}"
         )
 
+        self._log_decision(row["timestamp"], decision)
+
     def _paper_trade_step(self, enriched, row) -> None:
+
+        # Evaluated separately from Backtester._step()'s own internal
+        # evaluate() call (same DecisionEngine instance, same enriched
+        # df, so identical result) rather than having _step() return
+        # its Decision - keeps _step()'s signature/contract, and every
+        # test pinned to it, completely untouched. main.py already
+        # does this same redundant-evaluate today (see CLAUDE.md).
+        decision = self.decision_engine.evaluate(enriched)
+
+        self._log_decision(row["timestamp"], decision)
 
         backtester = self._ensure_backtester()
 
@@ -154,6 +245,30 @@ class LiveTrader:
             backtester.portfolio,
             row["timestamp"],
         )
+
+    def _log_decision(self, timestamp, decision) -> None:
+        """
+        Failure-isolated for the same reason as _save_status_heartbeat():
+        this is pure telemetry, so a write error here (disk full, a
+        concurrent reader on Windows, ...) must never interrupt trading.
+        """
+
+        try:
+
+            LiveDecisionLog.append(
+                timestamp=timestamp,
+                symbol=self.symbol,
+                raw_signal=decision.raw_signal,
+                signal=decision.signal,
+                score=decision.score,
+                regime=decision.regime,
+            )
+
+        except Exception as e:
+
+            logger.warning(
+                f"{self.symbol}: failed to append live decision log entry: {e}"
+            )
 
     def _ensure_backtester(self) -> Backtester:
         """

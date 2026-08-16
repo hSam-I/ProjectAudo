@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta http-equiv="refresh" content="30">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Project Audo - Live Status</title>
+
+<link
+href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css"
+rel="stylesheet">
+
+<style>
+
+body{
+
+background:#0f172a;
+
+}
+
+.card{
+
+border:none;
+
+border-radius:15px;
+
+box-shadow:0 10px 20px rgba(0,0,0,.25);
+
+}
+
+.dashboard-title{
+
+color:white;
+
+font-weight:bold;
+
+}
+
+.table{
+
+margin-bottom:0;
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container py-5">
+
+<h1 class="dashboard-title text-center mb-2">
+
+PROJECT AUDO - LIVE STATUS
+
+</h1>
+
+<p class="text-center text-light mb-5">
+
+Auto-refreshes every 30s. Read-only view of a separately running
+<code>--live</code>/<code>--web</code> process - never touches the network itself.
+
+</p>
+
+{% if not has_run %}
+
+<div class="card bg-dark text-light mb-4">
+
+<div class="card-body text-center">
+
+<h3>No live process has run yet</h3>
+
+<p class="mb-0">Start one with <code>python -m app.main --live</code>.</p>
+
+</div>
+
+</div>
+
+{% elif corrupt %}
+
+<div class="card bg-danger text-white mb-4">
+
+<div class="card-body">
+
+<h3>Live state is corrupt</h3>
+
+<p class="mb-0">{{ corrupt_error }}</p>
+
+</div>
+
+</div>
+
+{% else %}
+
+<div class="row">
+
+<div class="col-lg-3 col-md-6 mb-4">
+
+<div class="card {% if health == 'OK' %}bg-success{% elif health == 'OVERDUE' %}bg-danger{% else %}bg-secondary{% endif %} text-white">
+
+<div class="card-body">
+
+<h6>Health</h6>
+
+<h2>
+
+{{ health }}
+
+{% if health == 'OVERDUE' %}
+(by {{ "%.0f"|format(overdue_by_seconds) }}s)
+{% endif %}
+
+</h2>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="col-lg-3 col-md-6 mb-4">
+
+<div class="card bg-primary text-white">
+
+<div class="card-body">
+
+<h6>Mode</h6>
+
+<h2>{{ mode|upper }}</h2>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="col-lg-3 col-md-6 mb-4">
+
+<div class="card bg-info text-white">
+
+<div class="card-body">
+
+<h6>Poll Count</h6>
+
+<h2>{{ poll_count }}</h2>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="col-lg-3 col-md-6 mb-4">
+
+<div class="card {% if error_count %}bg-warning text-dark{% else %}bg-secondary text-white{% endif %}">
+
+<div class="card-body">
+
+<h6>Error Count</h6>
+
+<h2>{{ error_count }}</h2>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="card bg-dark text-light mb-4">
+
+<div class="card-body">
+
+<h3>Process Information</h3>
+
+<table class="table table-dark table-striped">
+
+<tbody>
+
+<tr>
+
+<th width="220">Symbol</th>
+
+<td>{{ symbol }}</td>
+
+</tr>
+
+<tr>
+
+<th>Started At</th>
+
+<td>{{ started_at }}</td>
+
+</tr>
+
+<tr>
+
+<th>Restart Count</th>
+
+<td>{{ restart_count }}</td>
+
+</tr>
+
+<tr>
+
+<th>Last Poll At</th>
+
+<td>{{ last_poll_at or "-" }}</td>
+
+</tr>
+
+<tr>
+
+<th>Next Poll Due At</th>
+
+<td>{{ next_poll_due_at or "-" }}</td>
+
+</tr>
+
+<tr>
+
+<th>Last Error</th>
+
+<td>{{ last_error or "-" }}</td>
+
+</tr>
+
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+{% if paper_trading %}
+
+<div class="card bg-dark text-light mb-4">
+
+<div class="card-body">
+
+<h3>Paper Trading</h3>
+
+<table class="table table-dark table-striped">
+
+<tbody>
+
+<tr>
+
+<th width="220">Balance</th>
+
+<td>
+
+{% if balance is not none %}
+${{ "%.2f"|format(balance) }}
+{% else %}
+-
+{% endif %}
+
+</td>
+
+</tr>
+
+<tr>
+
+<th>Open Positions</th>
+
+<td>{{ open_position_count if open_position_count is not none else "-" }}</td>
+
+</tr>
+
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+{% else %}
+
+<div class="card bg-dark text-light mb-4">
+
+<div class="card-body">
+
+<p class="mb-0">Observation mode - no trades are opened.</p>
+
+</div>
+
+</div>
+
+{% endif %}
+
+<div class="card bg-dark text-light mb-4">
+
+<div class="card-body">
+
+<h3 class="mb-4">
+
+Signal Distribution
+
+</h3>
+
+{{ signal_distribution_chart|safe }}
+
+</div>
+
+</div>
+
+<div class="card bg-dark text-light">
+
+<div class="card-body">
+
+<h3 class="mb-4">
+
+Recent Decisions
+
+</h3>
+
+<table class="table table-dark table-hover">
+
+<thead>
+
+<tr>
+
+<th>Timestamp</th>
+
+<th>Symbol</th>
+
+<th>Raw Signal</th>
+
+<th>Final Signal</th>
+
+<th>Score</th>
+
+<th>Regime</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+{% for decision in decisions %}
+
+<tr>
+
+<td>{{ decision.timestamp }}</td>
+
+<td>{{ decision.symbol }}</td>
+
+<td>{{ decision.raw_signal }}</td>
+
+<td>{{ decision.signal }}</td>
+
+<td>{{ decision.score }}</td>
+
+<td>{{ decision.regime }}</td>
+
+</tr>
+
+{% else %}
+
+<tr>
+
+<td colspan="6" class="text-center">No decisions logged yet.</td>
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+{% endif %}
+
+</div>
+
+</body>
+
+</html>

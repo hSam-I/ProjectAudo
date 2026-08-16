@@ -1,12 +1,12 @@
 import dataclasses
 import json
 import os
-from pathlib import Path
 
 import pandas as pd
 
 from app.backtesting.portfolio import Portfolio
 from app.backtesting.trade import Trade
+from app.config.paths import DATA_DIR
 from app.core.enums import OrderSide
 from app.portfolio.portfolio_manager import PortfolioManager
 
@@ -35,7 +35,7 @@ class LiveStateStore:
     correctly from the start since it's new code.
     """
 
-    FILE = Path("data/live_state.json")
+    FILE = DATA_DIR / "live_state.json"
 
     @classmethod
     def save(

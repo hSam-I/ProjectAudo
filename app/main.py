@@ -23,6 +23,7 @@ from app.research.report_builder import ResearchReportBuilder
 from app.research.research_engine import ResearchEngine
 from app.risk.risk_manager import RiskManager
 from app.scheduler.scheduler import Scheduler
+from app.web.live_status_data import load_live_status
 
 
 def separator():
@@ -454,34 +455,157 @@ def run_live_paper_trading():
         logger.info(f"{symbol}: live loop stopped by user")
 
 
+def run_web_server():
+    """
+    Starts the FastAPI dashboard + read-only live-status hub, blocking
+    like --live does. uvicorn and app.web.server are imported lazily,
+    inside this function rather than at module top - app.web.server
+    imports app.web.dashboard_data, which pulls in Backtester/
+    BinanceProvider/ScoreEngine; --live's startup path (and every other
+    CLI mode) has no reason to pay that import cost just to run
+    argparse dispatch.
+    """
+
+    import uvicorn
+
+    from app.web.server import app as web_app
+
+    uvicorn.run(
+        web_app,
+        host=settings.web_host,
+        port=settings.web_port,
+    )
+
+
+def run_live_status():
+    """
+    One-shot console summary of load_live_status() - the same
+    network-free read layer the /live web route uses to show what a
+    separately running --live/--web process last wrote to disk.
+    """
+
+    status = load_live_status()
+
+    print()
+    print("=" * 70)
+    print("              PROJECT AUDO - LIVE STATUS")
+    print("=" * 70)
+
+    if not status["has_run"]:
+
+        print("No live process has run yet.")
+        print("Start one with: python -m app.main --live")
+        print("=" * 70)
+
+        return
+
+    if status["corrupt"]:
+
+        print("Live state is corrupt:")
+        print(f"  {status['corrupt_error']}")
+        print("=" * 70)
+
+        return
+
+    health = status["health"]
+
+    if health == "OVERDUE":
+        health = f"OVERDUE (by {status['overdue_by_seconds']:.0f}s)"
+
+    print(f"Symbol           : {status['symbol']}")
+    print(f"Mode             : {status['mode']}")
+    print(f"Health           : {health}")
+    print(f"Started At       : {status['started_at']}")
+    print(f"Restart Count    : {status['restart_count']}")
+    print(f"Poll Count       : {status['poll_count']}")
+    print(f"Error Count      : {status['error_count']}")
+    print(f"Last Poll At     : {status['last_poll_at'] or '-'}")
+    print(f"Next Poll Due At : {status['next_poll_due_at'] or '-'}")
+    print(f"Last Error       : {status['last_error'] or '-'}")
+
+    separator()
+
+    if status["paper_trading"]:
+
+        balance = status["balance"]
+
+        print(
+            f"Balance          : ${balance:,.2f}"
+            if balance is not None
+            else "Balance          : -"
+        )
+        print(f"Open Positions   : {status['open_position_count']}")
+
+    else:
+
+        print("Observation mode - no trades opened.")
+
+    separator()
+
+    print("Recent Decisions")
+
+    if status["decisions"]:
+
+        for decision in status["decisions"]:
+
+            print(
+                f"  {decision['timestamp']} | {decision['symbol']} | "
+                f"raw={decision['raw_signal']} | final={decision['signal']} | "
+                f"score={decision['score']} | regime={decision['regime']}"
+            )
+
+    else:
+
+        print("  (none logged yet)")
+
+    print("=" * 70)
+
+
 if __name__ == "__main__":
 
     import argparse
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(
+    # A single mutually-exclusive group so combining two mode flags
+    # (e.g. `--live --web`) is a hard argparse error instead of one
+    # flag silently losing to if/elif priority order.
+    mode = parser.add_mutually_exclusive_group()
+
+    mode.add_argument(
         "--walk-forward",
         action="store_true",
         help="Run rolling train/test walk-forward backtests instead of a single run.",
     )
 
-    parser.add_argument(
+    mode.add_argument(
         "--scan",
         action="store_true",
         help="Scan settings.symbols for raw signals instead of running a single-symbol backtest.",
     )
 
-    parser.add_argument(
+    mode.add_argument(
         "--multi-position",
         action="store_true",
         help="Run a multi-symbol backtest across settings.symbols sharing one portfolio's risk limits.",
     )
 
-    parser.add_argument(
+    mode.add_argument(
         "--live",
         action="store_true",
         help="Start an indefinite live loop for settings.symbols[0] (OBSERVE ONLY for now - no trades).",
+    )
+
+    mode.add_argument(
+        "--web",
+        action="store_true",
+        help="Start the FastAPI dashboard + read-only live-status hub instead of running a backtest.",
+    )
+
+    mode.add_argument(
+        "--live-status",
+        action="store_true",
+        help="Print a one-shot summary of a separately running --live/--web process's on-disk status.",
     )
 
     args = parser.parse_args()
@@ -494,5 +618,9 @@ if __name__ == "__main__":
         run_multi_position()
     elif args.live:
         run_live_paper_trading()
+    elif args.web:
+        run_web_server()
+    elif args.live_status:
+        run_live_status()
     else:
         main()

@@ -1,10 +1,10 @@
 import logging
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
+from app.config.paths import LOGS_DIR
 from app.config.settings import settings
 
-LOG_DIR = Path("logs")
+LOG_DIR = LOGS_DIR
 LOG_DIR.mkdir(exist_ok=True)
 
 LOG_FILE = LOG_DIR / "project_audo.log"
