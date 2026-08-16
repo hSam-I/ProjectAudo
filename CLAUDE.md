@@ -590,17 +590,43 @@ izlemekti; gözlem modunda disk'e HİÇBİR ŞEY yazılmıyordu, paper-trading m
 "süreç hâlâ hayatta mı" bilgisi, ne hata/retry sayacı vardı). Önce kodsuz bir PLAN
 onaylandı (kullanıcı kararları: web hub + CLI özeti, paylaşılan tek bir okuma katmanı
 üzerinden; sayfa meta-refresh ile yenilenir; `main.py`'ye `--web` flag'i eklenir). Bir
-Plan-agent kritiği (kod yazılmadan önce) tasarımda 4 gerçek kusur buldu, bunlar plana
-karar olarak işlendi: (1) güvenlik glob'unun isim eşleşmesine bağlı olması — yeni karar-log
-dosyasının `decision_log.py` değil `live_decision_log.py` olması gerektiği (aksi halde
-`app/execution/live_*.py`'yi tarayan mevcut güvenlik testinin dışında kalırdı); (2) test
-izolasyonu — yeni store'ların `FILE`'ının da mevcut autouse fixture'a eklenmesi gerektiği
-(aksi halde "Altıncı tur"da zaten belgelenen `data/` sızıntısı tekrarlanırdı); (3) telemetri
-yazmalarının trading döngüsünü asla kesmemesi (kendi try/except'i, Windows'ta bir okuyucu
-dosyayı açık tutarken `os.replace()`'ın `PermissionError` atabileceği somut riskiyle); (4)
-heartbeat'in "canlı" iddiasının abartılı olmaması — üç durumlu (`OK`/`OVERDUE`/`NO DATA`)
-dürüst bir rozet, yeşil "ALIVE" rozeti yok. Sonra plan tek seferde değil, beş fazda,
-her fazdan sonra tam suite çalıştırıp onay alınarak uygulandı.
+Plan-agent kritiği (kod yazılmadan önce) tasarımda 5 gerçek kusur buldu, bunlar plana
+karar olarak işlendi ve her biri aşağıdaki fazlarda giderildi:
+
+1. **Güvenlik glob'u isim eşleşmesine bağlı.** `app/execution/live_*.py`'yi tarayıp
+   `create_order`/`apiKey`/`secret` gibi anahtar kelimelerin geçmediğini doğrulayan mevcut
+   güvenlik testi glob-tabanlı; yeni karar-log dosyası `decision_log.py` olsaydı bu taramanın
+   DIŞINDA kalırdı. Çözüm: dosya `live_decision_log.py` olarak adlandırıldı (Faz 2) — testin
+   "en az 3 dosya tarandı" savunma kontrolü sayesinde artışın gerçekten yakalandığı ayrıca
+   doğrulandı.
+2. **Test izolasyonu şart, `data/` .gitignore'da değildi.** "Altıncı tur"da zaten bir kez
+   yaşanmış bir sızıntı deseni: yeni store'ların `FILE`'ı mevcut autouse fixture'a
+   eklenmezse testler gerçek `data/` klasörüne yazardı. Çözüm: `tests/test_live_trader.py`'nin
+   autouse fixture'ı `LiveStatusStore.FILE`/`LiveDecisionLog.FILE`'ı da kapsayacak şekilde
+   genişletildi (Faz 4), `.env`'e paralel olarak `.gitignore`'a `data/` eklendi (Faz 1).
+3. **Telemetri, trading döngüsünü ASLA kesmemeli.** Windows'ta bir okuyucu (web sayfası)
+   dosyayı açık tutarken `os.replace()`'ın `PermissionError` atabileceği somut, platforma
+   özgü bir risk vardı; guard olmadan bir yazma hatası sonsuza kadar aynı hatayla yeniden
+   deneyen "canlı görünen ama hiç ilerlemeyen bot" senaryosuna yol açardı. Alt-madde (3b):
+   `Decision.regime` bir `MarketRegime(str, Enum)` — `str(...)` yaparsan `"MarketRegime.RANGING"`
+   yazılır (yanlış), `json.dump`'a enum'u DOĞRUDAN vermek gerekir (doğru, `"RANGING"` çıkar).
+   Çözüm: `_save_status_heartbeat()`/`_log_decision()` kendi `try/except Exception` bloklarına
+   sarıldı (Faz 4, regresyon testiyle doğrulandı — bozuk bir yazma `_error_count`'u
+   ARTIRMIYOR), `regime` enum'u `json.dump`'a doğrudan verildi (Faz 2, ayrı testle doğrulandı).
+4. **Heartbeat'in "canlı" iddiası abartılı olmamalı.** Poll başına bir kez yazan bir
+   heartbeat, `1h` timeframe'de süreç öldükten sonra ~1 saate kadar "sağlıklı" görünmeye
+   devam edebilir. Bunu tam çözmek (heartbeat thread/chunked sleep) kapsam dışı bırakıldı;
+   çözüm: dürüst, üç durumlu bir rozet (`OK`/`OVERDUE (by Xs)`/`NO DATA`), yeşil "ALIVE"
+   rozeti YOK (Faz 3).
+5. **Path'ler tam ya da hiç ankorlanmalı.** `LiveStateStore.FILE`, `PerformanceDatabase.FILE`,
+   logger'ın `LOG_DIR`'ı, `server.py`'nin Jinja2 template dizini — hepsi process CWD'sine
+   göreliydi; sadece YENİ iki dosyayı ankorlamak DAHA KÖTÜ bir durum yaratırdı (bot bir
+   CWD'den, hub başka bir CWD'den çalışırsa farklı `data/` klasörlerine sessizce yazar/okurdu).
+   Çözüm: `app/config/paths.py` ile tam ankorlama, mevcut 5 call site + yeni 2 dosya hepsi
+   buna geçirildi (Faz 1).
+
+Sonra plan tek seferde değil, beş fazda, her fazdan sonra tam suite çalıştırıp onay
+alınarak uygulandı.
 
 **Faz 1 — path ankorlama/temel.** `app/config/paths.py` (`PROJECT_ROOT =
 Path(__file__).resolve().parents[2]`, `DATA_DIR`/`LOGS_DIR`/`TEMPLATES_DIR` hepsi
