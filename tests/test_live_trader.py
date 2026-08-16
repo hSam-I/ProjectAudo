@@ -641,6 +641,63 @@ def test_paper_trade_step_appends_to_the_decision_log(monkeypatch):
     assert entries[0]["signal"] == "HOLD"
 
 
+def test_observe_step_logs_the_candle_ohlc(monkeypatch):
+
+    _force_decision(monkeypatch, signal=Signal.BUY)
+
+    closed = _synthetic_df(settings.warmup_candles + 5)
+
+    feed = FakeFeed(closed, closed.iloc[-1:])
+
+    trader = LiveTrader("BTC/USDT", feed=feed)
+
+    trader.poll_once()
+
+    entry = LiveDecisionLog.tail(1)[0]
+
+    last_row = closed.iloc[-1]
+
+    assert entry["close"] == last_row["close"]
+    assert entry["open"] == last_row["open"]
+    assert entry["high"] == last_row["high"]
+    assert entry["low"] == last_row["low"]
+
+
+def test_paper_trade_step_logs_the_candle_ohlc_not_the_ticker_price(monkeypatch):
+    """
+    The logged price must be the just-closed candle's OHLC (what the
+    decision was actually made on), not the real-time ticker price used
+    to fill the paper trade - same distinction as
+    test_paper_trading_fills_at_ticker_price_not_candle_close, but for
+    what gets charted rather than what gets traded.
+    """
+
+    monkeypatch.setattr(settings, "enable_live_paper_trading", True)
+
+    _force_decision(monkeypatch, signal=Signal.HOLD)
+
+    closed = _synthetic_df(settings.warmup_candles + 5)
+
+    candle_close = closed["close"].iloc[-1]
+
+    ticker_price = candle_close + 500.0
+
+    feed = FakeFeed(
+        closed,
+        closed.iloc[-1:],
+        provider=FakeProvider(ticker_price=ticker_price),
+    )
+
+    trader = LiveTrader("BTC/USDT", feed=feed)
+
+    trader.poll_once()
+
+    entry = LiveDecisionLog.tail(1)[0]
+
+    assert entry["close"] == candle_close
+    assert entry["close"] != ticker_price
+
+
 def test_decision_log_write_failure_does_not_break_poll_once(monkeypatch):
 
     _force_decision(monkeypatch, signal=Signal.BUY)

@@ -132,6 +132,9 @@ Ana pipeline'a bağlı olanlar:
   `live_feed.py`, `live_trader.py`, `live_state_store.py` — `--live` CLI modu, bkz. "Altıncı tur".
   YENİ `live_status_store.py` (heartbeat: pid/mod/poll-error sayaçları) ve
   `live_decision_log.py` (append-only JSONL karar geçmişi) — bkz. "Sekizinci tur".
+  `live_decision_log.py`'nin her satırı artık opsiyonel olarak o kararın loglandığı
+  mumun `open`/`high`/`low`/`close`'unu da taşıyor (bkz. "Dokuzuncu tur") — bu turdan
+  ÖNCE yazılmış satırlarda bu 4 anahtar YOK, okuyucular `.get()`/`in` ile kontrol etmeli.
 
 **Opsiyonel/flag ile bağlı (Dördüncü tur, 2026-08-11 — main.py'ye artık bağlı ama
 varsayılan davranışı DEĞİŞTİRMİYOR, hepsi opt-in):**
@@ -580,8 +583,8 @@ kod yazmaya başladıktan sonra tasarımı değiştirmekten çok daha ucuza geli
 
 Tüm suite bu turdan sonra: 275 passed.
 
-## Sekizinci tur: canlı bot durum hub'ı — web + CLI (branch `feature/live-status-hub`,
-main'e merge bekleniyor, 2026-08-16)
+## Sekizinci tur: canlı bot durum hub'ı — web + CLI (main'e merge edildi, `a2e04d9`,
+2026-08-16)
 
 `python -m app.main --live` süresiz çalışan, ayrı bir OS process — belleği paylaşmıyor.
 Bu turdan önce durumunu görmenin tek yolu bir terminal penceresindeki log satırlarını
@@ -740,6 +743,139 @@ temizlendi (`.gitignore`'da olduğu için commit riski yoktu, ama tertipli bıra
 silindi); `--live-status` tekrar "hiç çalışmamış" mesajını gösterdi.
 
 Tüm suite bu turdan sonra: 321 passed.
+
+## Dokuzuncu tur: hub v2 — mum grafiği + skor zaman serisi (branch `feature/live-hub-v2`,
+main'e merge bekleniyor, 2026-08-16)
+
+"Sekizinci tur"daki `/live` sayfası sadece sinyal dağılımı bar grafiği + son 20
+kararlık bir tablo gösteriyordu — botu gerçek zamanlı izlerken "fiyat ne yapıyor,
+karar nerede düştü" sorusuna cevap vermiyordu. Bu tur üç şey ekliyor: (1) mum grafiği
+üzerinde BUY/SELL işaretleri, (2) skor zaman serisi + `SignalFilter`'ın 60 eşik
+çizgisi (hangi kararların kıl payı filtrelendiğini görmek için), (3) küçük
+görsel/erişilebilirlik cilası. `/plan` ile kodsuz bir plan onaylandı; plan aşamasında
+Explore + Plan agent'ları paralel çalıştırıldı, plan agent'ın taslağı incelenip
+(dataviz skill'in doğrulanmış referans paletiyle çapraz kontrol edilerek) 3 gerçek
+hata bulunup düzeltildi (aşağıya bak), sonra kullanıcı iki açık karara (yenileme
+mekanizması, görsel kimlik) AskUserQuestion ile karar verdi.
+
+**Mimari karar (planı belirledi):** fiyat verisi için ağa çıkmaya gerek yok. Canlı
+döngüde karar loglanırken (`live_trader.py`), o anki kapanmış mumun OHLC'si zaten
+`row` içinde elde mevcut (`LiveFeed.fetch_closed_candles()`'ın döndürdüğü DataFrame'in
+bir satırı) — `LiveDecisionLog`'a bu 4 alanı eklemek sıfır ekstra network çağrısı
+gerektirdi ve `load_live_status()`'un "ağa hiç çıkmaz" sözleşmesini (autouse
+`_forbid_network_calls` fixture'ıyla korunan, "Sekizinci tur") hiç bozmadı.
+
+**Plan-agent taslağının incelemede bulunan 3 hatası (koda geçmeden düzeltildi):**
+1. Taslak "np.float64 JSON'a yazılamaz, `float()` dönüşümü TypeError'dan kaçınmak
+   için zorunlu" diyordu — bu repo'nun ortamında (pandas 3.0.5/numpy 2.5.1) elle
+   ölçülüp YANLIŞ çıktı: `np.float64` zaten Python `float`'ın alt sınıfı, `json.dumps`
+   sorunsuz serileştiriyor. `float()`/`math.isfinite()` yine de uygulandı ama
+   gerekçesi değişti: TypeError değil, **veri kalitesi** (bir NaN/inf OHLC değeri
+   `json.dump`'ın `allow_nan=True` varsayılanıyla geçersiz bir JSON token'ı olarak
+   yazılıp Plotly'de bozuk bir mum üretirdi).
+2. Taslak `font-variant-numeric:tabular-nums`'ı KPI `<h2>` büyük sayılarına
+   öneriyordu — `dataviz` skill'inin `marks-and-anatomy.md`'sindeki açık
+   anti-pattern bunu yasaklıyor ("Proportional figures on hero and stat-tile
+   values; tabular-nums only where numbers align vertically"). Sadece tablo
+   sütunlarına uygulandı.
+3. Taslağın skor grafiği marker boyutu (6px) skill'in "Marker ≥ 8px (r ≥ 4)"
+   kuralının altındaydı — 8px'e çıkarıldı.
+
+Ayrıca doğrulandı: candlestick marker halkası rengi skill'in genel `#1a1a19`
+yüzey değeri DEĞİL, Plotly'nin KENDİ `plotly_dark` şablonunun arka planı olan
+`rgb(17,17,17)`/`#111111` (grafikler kendi CSS yüzeyimiz değil Plotly'nin hazır
+koyu temasını kullanıyor — mevcut `equity_chart`/`signal_distribution_chart`
+zaten böyle). Renkler: status good `#0ca30c` / critical `#d03b3b` / muted
+`#898781` (candle yönü — fiyat artışı/azalışı gerçekten iyi/kötü *anlamına*
+geliyor, skill'in "collision rule"'una göre status token'ı hak ediyor), kategorik
+slot 1 (blue) `#3987e5` / slot 5 (magenta) `#d55181` (BUY/SELL kimliği — farklı bir
+"iş", candle yönünden kasıtlı olarak ayrı).
+
+**Kullanıcı kararları (AskUserQuestion):**
+- **Yenileme: meta-refresh, 60sn'e çıkarıldı** (`content="30"` → `content="60"`).
+  Gerekçe: bot 1h timeframe'de, 30sn'de bir yenilemek aynı veriyi ~120 kez göstermek
+  demekti. htmx (repo'nun ilk client-side kütüphane bağımlılığı olurdu) eklenmedi —
+  kazanç "JS yok" konvansiyonunu kırmaya değmiyordu. **Not (kullanıcının istediği):**
+  bu 60sn değeri `settings.timeframe`'e bağlı bir tercih — dakikalık bir timeframe'e
+  geçilirse (örn. duman testlerinde kullanılan `1m`) çok seyrek kalır, o zaman
+  yeniden değerlendirilmeli.
+- **Görsel kimlik: `index.html` ile birebir tutarlı + ince "canlı" vurgusu.**
+  Uygulandı: `.table-responsive` sarmalayıcı (`live.html`'deki 3 tablo + `index.html`'deki
+  Trade History — ikisinde de yoktu, mobilde taşıyordu), tablo sütunlarında
+  `tabular-nums`, `/` ↔ `/live` nav linki, başlıkta CSS-only durum noktası (health
+  rengiyle eşleşen, JS yok) + Process Information kartında aynı renkte 2px accent
+  border (Health KPI kutusu zaten tam o renkte dolu olduğu için border ORAYA değil,
+  nötr Process Information kartına uygulandı — aynı renk üzerine aynı renk border
+  görünmez olurdu) + "Auto-refreshes..." satırı muted ink.
+
+### Faz kırılımı
+
+1. **Yazma yolu.** `LiveDecisionLog.append()`'e opsiyonel `candle` parametresi
+   (keyword, varsayılan `None` — mevcut 7 çağrı etkilenmedi), yeni
+   `_ohlc_fields()` (all-or-nothing: 4 alan da `float()`+`math.isfinite()`
+   geçmezse HİÇBİRİ yazılmıyor). `open` builtin'iyle çakışan bir parametre adı
+   BİLİNÇLİ OLARAK kullanılmadı (`LiveDecisionLog` zaten dosya I/O için `open()`
+   kullanıyor). `LiveTrader._log_decision()`'a `candle=None` eklendi, iki call
+   site (`_observe_step`/`_paper_trade_step`) `candle=row` geçiyor — `row` zaten
+   `poll_once()`'ta scope'ta, sıfır yeni network çağrısı. Testler: `pandas.Series`
+   candle kabulü + JSON-serileşebilirlik kilidi, mumsuz eski davranış, kısmi
+   mum → hiç OHLC yazılmıyor, NaN/inf → hiç OHLC yazılmıyor, karışık format
+   dosyası, paper modda loglanan fiyatın ticker DEĞİL mum kapanışı olduğu.
+2. **Okuma yolu.** Yeni modül sabiti `CHART_HISTORY = 100` (`DECISION_TAIL = 20`
+   ile aynı desende — bir `Settings` alanı DEĞİL, saf görüntüleme tercihi).
+   `_read_decisions()` artık `tail(CHART_HISTORY)` çekiyor, TEK çağrı iki
+   tüketiciye (`decisions` tabloya `[:DECISION_TAIL]`, `chart_decisions`
+   grafiklere kronolojik+sembol-filtreli) besleniyor. `app/main.py::run_live_status()`
+   DEĞİŞMEDİ (`chart_decisions`'ı okumuyor, konsolda mum çizmenin anlamı yok).
+3. **Grafikler.** `app/web/charts.py`'e `candlestick_chart()` (OHLC'li kayıtları
+   filtreler, boşsa "No price data logged yet" fallback'i — `signal_distribution_chart`'ın
+   sıfır-veri deseniyle aynı ruhta; HOLD marker'ı ÇİZİLMEZ — baskın durum, marker
+   halısına dönerdi; BUY/SELL ayrı trace'ler; eşiğin filtrelediği kararlar için
+   3. bir "Filtered" trace'i; `xaxis_rangeslider_visible=False`) ve `score_chart()`
+   (`SignalFilter.BUY_THRESHOLD` import edilip eşik çizgisi çiziliyor, 60 sabiti
+   KOPYALANMADI; sabit `[-105,105]` y ekseni — refresh'ler arası zıplamayı önler).
+   **`tests/test_charts.py` YENİ dosya** (14 test) — `charts.py`'nin İLK doğrudan
+   testi (öncesinde sadece `test_web_server.py` üzerinden dolaylı kapsanıyordu);
+   mevcut `signal_distribution_chart`'ın boş-veri fallback'i de ilk kez doğrudan
+   test edildi (bedava).
+4. **Route + template + görsel cila.** `server.py`'nin `/live` route'una iki yeni
+   context anahtarı (`candlestick_chart`, `score_chart`) — grafik üretimi route'ta
+   KALDI, `load_live_status()`'a taşınmadı (aksi halde ağa çıkmayan/hafif okuma
+   katmanı her CLI dispatch'inde `plotly`'yi import ederdi, `app/main.py` modül
+   tepesinde `load_live_status`'ü import ediyor). `live.html`'e "Price & Signals"
+   ve "Decision Score" kartları (Signal Distribution'dan ÖNCE) + yukarıdaki görsel
+   cila. `index.html`'e nav link + Trade History `.table-responsive`/`tabular-nums`.
+5. **Yenileme aralığı** (Faz 4'e katlandı, tek satırlık ve test etkisi olmayan bir
+   değişiklik olduğu için ayrı bir doğrulama turu gerektirmedi): `content="30"` →
+   `content="60"`.
+6. **Dokümantasyon + elle duman testi.** `--web` arka planda başlatıldı; `data/`'ya
+   elle 3 eski format (OHLC'siz) + 5 yeni format (OHLC'li, BUY/SELL/HOLD/filtrelenmiş
+   karışımı) satır yazıldı; `/live`'ın mum grafiğinin SADECE 5 OHLC'li satırı
+   çizdiği, skor grafiğinin 8'inin de göründüğü, BUY/SELL/Filtered trace'lerinin
+   ayrı ayrı render edildiği, eşik anotasyonunun ("Filter threshold (60)"),
+   refresh'in 60sn'e çıktığının, durum noktasının/nav linkinin/`.table-responsive`
+   sarmalayıcıların gerçekten göründüğü `curl` ile çekilen HTML üzerinden
+   doğrulandı; div etiketleri dengeli bulundu (34 açık/34 kapalı); sonra `data/`
+   temizlendi, süreçler durduruldu (bu turda da "Sekizinci tur"daki gibi bash'in
+   arka plan job PID'i ile gerçek `python.exe` PID'i FARKLI çıktı — bu kez
+   `uvicorn`'un kendi log satırındaki `"Started server process [PID]"` doğrudan
+   kullanılarak PowerShell `Stop-Process` ile doğru süreç durduruldu).
+
+**Geriye dönük uyumluluk:** `LiveDecisionLog` zaten şemasız (`tail()` düz
+`json.loads`, hiçbir alan doğrulanmıyor) — yeni `open`/`high`/`low`/`close`
+anahtarları opsiyonel/düz/all-or-nothing, eski satırlar bu 4 anahtarı hiç
+taşımıyor, okuma/çizim tarafı `all(k in entry for k in (...))` filtresiyle
+kontrol ediyor, asla doğrudan `entry["close"]` erişimi yok. Migration script'i,
+versiyon alanı, dosya yeniden yazımı gerekmedi.
+
+**Performans:** `tail()` zaten sondan blok blok (`8192` byte) `seek` ediyor —
+`tail(100)` maliyeti dosya boyutundan bağımsız, `tail(20)`'den ölçülemez derecede
+farklı. İki grafik + tablo tek `tail()` çağrısını paylaşıyor, okuma sayısı artmadı.
+
+Testler: 8 yeni (`test_live_decision_log.py`), 2 yeni (`test_live_trader.py`), 6
+yeni (`test_live_status_data.py`), 14 yeni (`test_charts.py`, YENİ dosya), 2 yeni
+(`test_web_server.py`) — toplam 32 yeni test, hiçbir mevcut test değişmedi.
+Tüm suite bu turdan sonra: 351 passed.
 
 ## Bilinen sorunlar
 

@@ -3,7 +3,11 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config.paths import TEMPLATES_DIR
-from app.web.charts import signal_distribution_chart
+from app.web.charts import (
+    candlestick_chart,
+    score_chart,
+    signal_distribution_chart,
+)
 from app.web.dashboard_data import load_dashboard_data
 from app.web.live_status_data import load_live_status
 
@@ -55,6 +59,12 @@ def live_status(request: Request):
 
         context={
             "request": request,
+            "candlestick_chart": candlestick_chart(
+                data["chart_decisions"]
+            ),
+            "score_chart": score_chart(
+                data["chart_decisions"]
+            ),
             "signal_distribution_chart": signal_distribution_chart(
                 data["decisions"]
             ),

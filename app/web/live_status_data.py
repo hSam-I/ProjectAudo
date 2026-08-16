@@ -7,6 +7,14 @@ from app.execution.live_status_store import LiveStatusStore
 
 DECISION_TAIL = 20
 
+# How many recent decisions to fetch for charting (candlestick/score
+# time series) - deliberately larger than DECISION_TAIL (the "recent
+# decisions" table only needs a handful of rows, the charts want more
+# context). A module constant, not a Settings field, matching
+# DECISION_TAIL's own precedent: this is a pure display choice, not a
+# data-fetch window like settings.candle_limit.
+CHART_HISTORY = 100
+
 
 def load_live_status() -> dict:
     """
@@ -54,6 +62,7 @@ def load_live_status() -> dict:
         "balance": None,
         "open_position_count": None,
         "decisions": [],
+        "chart_decisions": [],
     }
 
     if result["paper_trading"]:
@@ -73,7 +82,10 @@ def load_live_status() -> dict:
                 if trade["status"] == "OPEN"
             )
 
-    result["decisions"] = _read_decisions()
+    recent = _read_decisions()
+
+    result["decisions"] = recent[:DECISION_TAIL]
+    result["chart_decisions"] = _chart_decisions(recent, result["symbol"])
 
     return result
 
@@ -97,9 +109,28 @@ def _read_paper_state() -> dict | None:
 def _read_decisions() -> list[dict]:
 
     try:
-        return LiveDecisionLog.tail(DECISION_TAIL)
+        return LiveDecisionLog.tail(CHART_HISTORY)
     except (FileNotFoundError, PermissionError):
         return []
+
+
+def _chart_decisions(decisions: list[dict], symbol: str | None) -> list[dict]:
+    """
+    Turns tail()'s newest-first, possibly-multi-symbol result into a
+    chronological (oldest-first, left-to-right) series scoped to one
+    symbol - decisions.jsonl is a single shared file, so if more than
+    one --live process were ever pointed at it, filtering by the
+    reporting symbol keeps a candlestick chart from interleaving two
+    unrelated instruments.
+    """
+
+    scoped = (
+        [entry for entry in decisions if entry.get("symbol") == symbol]
+        if symbol is not None
+        else decisions
+    )
+
+    return list(reversed(scoped))
 
 
 def _health(next_poll_due_at_raw) -> tuple[str, float | None]:
@@ -138,6 +169,7 @@ def _never_run_status() -> dict:
         "balance": None,
         "open_position_count": None,
         "decisions": [],
+        "chart_decisions": [],
     }
 
 

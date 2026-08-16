@@ -96,3 +96,79 @@ def test_live_route_renders_corrupt_state_instead_of_500(client):
 
     assert response.status_code == 200
     assert "corrupt" in response.text.lower()
+
+
+def test_live_page_embeds_all_three_charts(client):
+
+    from app.core.enums import Signal
+    from app.core.time_utils import utc_now
+    from app.market.regime import MarketRegime
+
+    LiveStatusStore.save(
+        symbol="BTC/USDT",
+        mode="observe",
+        started_at=str(utc_now()),
+        restart_count=0,
+        last_poll_at=str(utc_now()),
+        next_poll_due_at=str(utc_now()),
+        poll_count=1,
+        error_count=0,
+        last_error=None,
+    )
+
+    LiveDecisionLog.append(
+        timestamp=str(utc_now()),
+        symbol="BTC/USDT",
+        raw_signal=Signal.BUY,
+        signal=Signal.BUY,
+        score=70,
+        regime=MarketRegime.RANGING,
+        candle={"open": 100.0, "high": 105.0, "low": 99.0, "close": 103.0},
+    )
+
+    response = client.get("/live")
+
+    assert response.status_code == 200
+    assert "Price &amp; Signals" in response.text or "Price & Signals" in response.text
+    assert "Decision Score" in response.text
+    assert "Signal Distribution" in response.text
+
+
+def test_live_page_renders_when_decisions_have_no_ohlc(client):
+    """
+    End-to-end backward-compatibility lock: entries logged before this
+    turn added OHLC to LiveDecisionLog lack open/high/low/close entirely
+    - the whole page (including the new candlestick chart) must still
+    render, not 500.
+    """
+
+    from app.core.enums import Signal
+    from app.core.time_utils import utc_now
+    from app.market.regime import MarketRegime
+
+    LiveStatusStore.save(
+        symbol="BTC/USDT",
+        mode="observe",
+        started_at=str(utc_now()),
+        restart_count=0,
+        last_poll_at=str(utc_now()),
+        next_poll_due_at=str(utc_now()),
+        poll_count=1,
+        error_count=0,
+        last_error=None,
+    )
+
+    # No `candle=` given - the exact shape of a pre-upgrade entry.
+    LiveDecisionLog.append(
+        timestamp=str(utc_now()),
+        symbol="BTC/USDT",
+        raw_signal=Signal.HOLD,
+        signal=Signal.HOLD,
+        score=10,
+        regime=MarketRegime.RANGING,
+    )
+
+    response = client.get("/live")
+
+    assert response.status_code == 200
+    assert "No price data logged yet" in response.text

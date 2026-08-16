@@ -9,12 +9,14 @@ instead of crashing on a never-run, corrupt, or mid-write file.
 import pandas as pd
 import pytest
 
+from app.core.enums import Signal
 from app.core.time_utils import utc_now
 from app.data.binance_provider import BinanceProvider
 from app.execution.live_decision_log import LiveDecisionLog
 from app.execution.live_state_store import LiveStateStore
 from app.execution.live_status_store import LiveStatusStore
-from app.web.live_status_data import load_live_status
+from app.market.regime import MarketRegime
+from app.web.live_status_data import CHART_HISTORY, DECISION_TAIL, load_live_status
 
 
 @pytest.fixture(autouse=True)
@@ -194,3 +196,89 @@ def test_decisions_are_read_from_the_decision_log():
 
     assert len(result["decisions"]) == 1
     assert result["decisions"][0]["symbol"] == "BTC/USDT"
+
+
+def _log(timestamp, symbol="BTC/USDT", score=0, **overrides):
+
+    kwargs = {
+        "timestamp": timestamp,
+        "symbol": symbol,
+        "raw_signal": Signal.HOLD,
+        "signal": Signal.HOLD,
+        "score": score,
+        "regime": MarketRegime.RANGING,
+    }
+
+    kwargs.update(overrides)
+
+    LiveDecisionLog.append(**kwargs)
+
+
+def test_chart_decisions_are_returned_oldest_first():
+
+    _save_status(mode="observe")
+
+    _log("2024-01-01 00:00:00", score=1)
+    _log("2024-01-01 01:00:00", score=2)
+    _log("2024-01-01 02:00:00", score=3)
+
+    result = load_live_status()
+
+    assert [e["score"] for e in result["chart_decisions"]] == [1, 2, 3]
+    assert [e["score"] for e in result["decisions"]] == [3, 2, 1]
+
+
+def test_chart_decisions_only_include_the_reported_symbol():
+
+    _save_status(mode="observe", symbol="BTC/USDT")
+
+    _log("2024-01-01 00:00:00", symbol="BTC/USDT", score=1)
+    _log("2024-01-01 00:00:00", symbol="ETH/USDT", score=99)
+
+    result = load_live_status()
+
+    assert all(e["symbol"] == "BTC/USDT" for e in result["chart_decisions"])
+    assert len(result["chart_decisions"]) == 1
+
+
+def test_decisions_table_is_still_capped_at_decision_tail():
+
+    _save_status(mode="observe")
+
+    for i in range(30):
+        _log(f"2024-01-01T00:{i:02d}:00", score=i)
+
+    result = load_live_status()
+
+    assert len(result["decisions"]) == DECISION_TAIL
+    assert len(result["chart_decisions"]) == 30
+    assert len(result["chart_decisions"]) <= CHART_HISTORY
+
+
+def test_chart_decisions_is_empty_when_nothing_has_run():
+
+    result = load_live_status()
+
+    assert result["chart_decisions"] == []
+
+
+def test_chart_decisions_is_empty_when_corrupt():
+
+    LiveStatusStore.FILE.parent.mkdir(exist_ok=True)
+    LiveStatusStore.FILE.write_text("{not valid json", encoding="utf-8")
+
+    result = load_live_status()
+
+    assert result["chart_decisions"] == []
+
+
+def test_chart_decisions_tolerate_old_format_lines_without_ohlc():
+
+    _save_status(mode="observe")
+
+    _log("2024-01-01 00:00:00", score=1)  # old format, no candle field
+
+    result = load_live_status()
+
+    assert len(result["chart_decisions"]) == 1
+    assert "close" not in result["chart_decisions"][0]

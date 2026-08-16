@@ -213,7 +213,7 @@ class LiveTrader:
             f"score={decision.score} | regime={decision.regime}"
         )
 
-        self._log_decision(row["timestamp"], decision)
+        self._log_decision(row["timestamp"], decision, candle=row)
 
     def _paper_trade_step(self, enriched, row) -> None:
 
@@ -225,7 +225,7 @@ class LiveTrader:
         # does this same redundant-evaluate today (see CLAUDE.md).
         decision = self.decision_engine.evaluate(enriched)
 
-        self._log_decision(row["timestamp"], decision)
+        self._log_decision(row["timestamp"], decision, candle=row)
 
         backtester = self._ensure_backtester()
 
@@ -246,11 +246,16 @@ class LiveTrader:
             row["timestamp"],
         )
 
-    def _log_decision(self, timestamp, decision) -> None:
+    def _log_decision(self, timestamp, decision, candle=None) -> None:
         """
         Failure-isolated for the same reason as _save_status_heartbeat():
         this is pure telemetry, so a write error here (disk full, a
         concurrent reader on Windows, ...) must never interrupt trading.
+
+        `candle` (the just-closed candle's OHLC row) is optional and,
+        when given, is passed straight through to LiveDecisionLog so the
+        hub can chart price/signals together - captured for free from
+        data already fetched this poll, no extra network call.
         """
 
         try:
@@ -262,6 +267,7 @@ class LiveTrader:
                 signal=decision.signal,
                 score=decision.score,
                 regime=decision.regime,
+                candle=candle,
             )
 
         except Exception as e:

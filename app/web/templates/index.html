@@ -45,6 +45,24 @@ margin-bottom:0;
 
 }
 
+.tabular-nums{
+
+font-variant-numeric:tabular-nums;
+
+}
+
+.nav-link-light{
+
+color:#c3c2b7;
+
+}
+
+.nav-link-light:hover{
+
+color:white;
+
+}
+
 </style>
 
 </head>
@@ -53,11 +71,17 @@ margin-bottom:0;
 
 <div class="container py-5">
 
-<h1 class="dashboard-title text-center mb-5">
+<h1 class="dashboard-title text-center mb-2">
 
 PROJECT AUDO
 
 </h1>
+
+<p class="text-center mb-5">
+
+<a href="/live" class="nav-link-light">Live Status &rarr;</a>
+
+</p>
 
 <div class="row">
 
@@ -211,6 +235,8 @@ Trade History
 
 </h3>
 
+<div class="table-responsive">
+
 <table class="table table-dark table-hover">
 
 <thead>
@@ -239,13 +265,13 @@ Trade History
 
 <tr>
 
-<td>{{ loop.index }}</td>
+<td class="tabular-nums">{{ loop.index }}</td>
 
 <td>{{ trade.side }}</td>
 
-<td>{{ "%.2f"|format(trade.entry_price) }}</td>
+<td class="tabular-nums">{{ "%.2f"|format(trade.entry_price) }}</td>
 
-<td>
+<td class="tabular-nums">
 
 {% if trade.exit_price is not none %}
 
@@ -259,7 +285,7 @@ Trade History
 
 </td>
 
-<td>{{ "%.2f"|format(trade.profit) }}</td>
+<td class="tabular-nums">{{ "%.2f"|format(trade.profit) }}</td>
 
 <td>{{ trade.status }}</td>
 
@@ -270,6 +296,8 @@ Trade History
 </tbody>
 
 </table>
+
+</div>
 
 </div>
 

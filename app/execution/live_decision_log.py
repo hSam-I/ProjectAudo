@@ -1,4 +1,5 @@
 import json
+import math
 import os
 
 from app.config.paths import DATA_DIR
@@ -23,6 +24,12 @@ class LiveDecisionLog:
     entry - tail() drops the older copy at read time rather than trying
     to avoid writing the duplicate in the first place, keeping the
     write path a plain, unconditional append.
+
+    Entries optionally carry the logged candle's OHLC as flat top-level
+    "open"/"high"/"low"/"close" keys (added after the initial release -
+    see append()'s `candle` parameter). Entries written before this
+    existed simply lack these 4 keys - readers must treat them as
+    optional ("close" in entry / .get(...)), never assume presence.
     """
 
     FILE = DATA_DIR / "decisions.jsonl"
@@ -37,6 +44,7 @@ class LiveDecisionLog:
         signal,
         score,
         regime,
+        candle=None,
     ) -> None:
 
         entry = {
@@ -48,11 +56,43 @@ class LiveDecisionLog:
             "regime": regime,
         }
 
+        if candle is not None:
+            entry.update(cls._ohlc_fields(candle))
+
         cls.FILE.parent.mkdir(exist_ok=True)
 
         with open(cls.FILE, "a", encoding="utf-8") as file:
             json.dump(entry, file)
             file.write("\n")
+
+    @staticmethod
+    def _ohlc_fields(candle) -> dict:
+        """
+        All-or-nothing: if any of open/high/low/close can't be read and
+        converted to a finite float, NONE of them are written - readers
+        rely on "close present -> the other three are too" rather than
+        guarding each field independently. A malformed/non-finite OHLC
+        value (a data-provider hiccup) would otherwise write a
+        half-formed or NaN candle - harmless to this JSONL file itself,
+        but a broken/gapped candle once charted. `candle` may be a dict
+        or a pandas Series (the real call site's type) - both support
+        key lookup and raise KeyError on a missing field.
+        """
+
+        try:
+
+            fields = {
+                key: float(candle[key])
+                for key in ("open", "high", "low", "close")
+            }
+
+        except (KeyError, TypeError, ValueError):
+            return {}
+
+        if not all(math.isfinite(value) for value in fields.values()):
+            return {}
+
+        return fields
 
     @classmethod
     def tail(cls, n: int) -> list[dict]:
