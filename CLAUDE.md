@@ -534,6 +534,34 @@ eklendi. Faz adı adı test edilip onaylanarak ilerliyor.
 
 Tüm suite bu turdan sonra: 261 passed.
 
+## Yedinci tur: Sharpe/Sortino sıfır-varyans + çoklu-sembol timestamp gap (branch
+`feature/multi-symbol-gap-handling`, main'e merge bekleniyor, 2026-08-16)
+
+Bu tur iki bağımsız düzeltmeden oluşuyor: (1) küçük, doğrudan uygulanan bir raporlama
+düzeltmesi (Sharpe/Sortino sıfır-varyans, bkz. "Bilinen sorunlar" madde 6), ve (2) plan
+onayı gerektiren, ölçüm sırasında kapsamı önemli ölçüde değişen bir doğruluk düzeltmesi
+(çoklu-sembol timestamp gap, bkz. "Bilinen sorunlar" madde 5). İkincisi için önce kodsuz
+bir PLAN onaylandı; plan aşamasında yapılan sayısal ölçümler hem sorunun büyüklüğünü hem
+de ilk onaylanan çözümün ("gap'li sembolü ele, devam et") matematiksel olarak uygulanamaz
+olduğunu ortaya çıkardı — bu yüzden plan bir kez daha kullanıcıya döndürülüp yeniden
+onaylandı. **Ders:** bir çözüm onaylanmadan önce onun temel varsayımını (burada:
+"hizalama sonrası gap'li TEK bir sembol var olabilir") küçük bir ölçümle doğrulamak,
+kod yazmaya başladıktan sonra tasarımı değiştirmekten çok daha ucuza geliyor.
+
+22. **Sharpe/Sortino sıfır-varyans fix.** Ayrıntı için "Bilinen sorunlar" madde 6. Tek
+    değişen davranış: sıfır std/downside-deviation durumunda `0.0` yerine ortalama
+    getirinin işaretine göre `float("inf")`/`float("-inf")`. main.py'nin konsol
+    formatlaması dışında hiçbir JSON çıktısı bu değerleri taşımadığı ayrıca doğrulandı.
+23. **Çoklu-sembol timestamp gap fix.** Ayrıntı için "Bilinen sorunlar" madde 5 (fix'in
+    tam açıklaması) ve madde 7 (bu turda bulunan ama bilinçli olarak dokunulmayan
+    `DataValidator`'ın 1.5x-medyan zayıflığı). Özet: belgelenen sorun sanıldığından çok
+    daha dar (üretim yolunda pratikte ulaşılamaz) çıktı; buna karşılık aynı kod yolunda
+    daha ciddi ve gerçekten ulaşılabilir farklı bir bug (boş/çok kısa kesişimde sessiz
+    sıfır-trade backtest) bulundu ve o düzeltildi. `app/backtesting/backtester.py::_run_multi`
+    dışında hiçbir dosya değişmedi, flag yok (koruma/doğruluk düzeltmesi). Tüm suite: 275 passed.
+
+Tüm suite bu turdan sonra: 275 passed.
+
 ## Bilinen sorunlar
 
 1. ✅ **DÜZELTİLDİ (2026-08-10)** — AI score bazı yollarda her zaman 0 dönüyordu.
@@ -571,20 +599,63 @@ Tüm suite bu turdan sonra: 261 passed.
    `logger.warning(...)` çağırıyor, `except: pass` yok. Muhtemelen son commit
    (`84190e2 "Corrections to code"`) bunu zaten düzeltmiş. `git log -- app/decision/decision_engine.py`
    ile teyit edildi.
-5. ⚠️ **BİLİNEN SINIRLAMA (belgelendi, düzeltilmedi — 2026-08-11, "Beşinci tur"da eklendi,
-   main'e merge edildi)** — `Backtester._run_multi()`/
-   `_align_timestamps()` (çoklu-sembol/çoklu-pozisyon backtest) her sembolün indikatörlerini
-   kendi TAM/hizalanmamış serisi
-   üzerinde hesaplıyor (warmup'ın doğru kalması için — hizalamadan ÖNCE hesaplanmazsa EMA/RSI
-   gibi indikatörler yanlış ısınır), SONRA sembolleri ortak zaman ekseninin kesişimine göre
-   filtreliyor. Bu sıralama indikatör DEĞERLERİNİ doğru tutuyor ama bir sembol kesişimde
-   ORTADAN (uçlardan değil) mum kaybederse, hizalanmış seride ARDIŞIK görünen iki satır
-   arasında gerçekte bir zaman boşluğu olabiliyor — `DecisionEngine.evaluate()`'in ardışık-mum
-   varsayımıyla çalışan kısımları (ör. EMA crossover tespiti, `MarketRegimeDetector`'ın son
-   pencereye bakan hesapları) bu durumda gerçekte olmayan bir "ardışık mum" üzerinden karar
-   verebilir. Kasıtlı olarak düzeltilmedi — kapsamı ayrı bir karar (ör. gap'li sembolleri
-   tamamen atlamak ya da indikatörleri hizalama SONRASI yeniden hesaplamak, ikincisi warmup'ı
-   bozar) gerektiriyor, bu turun kapsamı dışında bırakıldı.
+5. ✅ **DÜZELTİLDİ, ölçüm sonrası kapsam DARALDI (2026-08-16, branch
+   `feature/multi-symbol-gap-handling`)** — Orijinal belge şöyle diyordu:
+   `Backtester._run_multi()`/`_align_timestamps()` her sembolün indikatörlerini kendi TAM/
+   hizalanmamış serisi üzerinde hesaplayıp SONRA ortak zaman ekseninin kesişimine göre
+   filtrelediği için, bir sembol kesişimde ORTADAN mum kaybederse hizalanmış seride ARDIŞIK
+   görünen iki satır arasında gerçek bir zaman boşluğu kalabiliyordu.
+
+   **Plan aşamasında ölçümle bulunanlar bu tabloyu değiştirdi:**
+   - `_run_multi()` her sembolü ham haliyle `DataValidator.validate()`'ten geçiriyor
+     (`app/backtesting/backtester.py:151`), ve `DataValidator` zaten kendi gap kontrolünü
+     (`_timestamps_are_evenly_spaced`, `app/data/validator.py:128-150`) içeriyor — ORTADAN
+     boşluğu olan bir sembol hizalamaya hiç ulaşmadan elenir. Sonlu aritmetik dizilerin
+     kesişimi ya boştur ya da başka bir aritmetik dizidir, yani kendi içinde düzgün aralıklı
+     serilerden kesişim yoluyla ORTADAN boşluk çıkamaz — belgelenen senaryo üretim yolunda
+     pratikte ulaşılamazdı.
+   - Gap gerçekten oluştuğunda (validator'ın 1.5x-medyan kuralı delinirse, bkz. madde 7)
+     etkisi sanılandan küçük: indikatörler hizalamadan ÖNCE hesaplandığı için değerleri
+     doğru kalıyor, sadece `EMARSIStrategy`'nin `.iloc[-2]` crossover tespiti (repodaki tek
+     satırlar-arası strateji) etkileniyor — ölçüm: 87 gap yerleşiminde backtest başına
+     ortalama 0.13 hatalı crossover, kaybolan gerçek crossover 0; üretilen sinyal yoktan
+     icat değil, gerçek bir crossover'ın gap sınırında GEÇ raporlanması (25 mumluk gap'te
+     %8.47'ye varan bayat giriş fiyatı).
+   - Bulunan asıl ciddi ve GERÇEKTEN ulaşılabilir bug: kesişim boşsa (faz kayması, örtüşmeyen
+     tarih aralıkları) ya da `warmup_candles+1`'den kısaysa, `_run_multi`'nin candle döngüsü
+     hiç çalışmıyordu ve dokunulmamış bir portfolio sessizce dönüyordu — tek log "N candles
+     dropped" idi, "backtest hiç çalışmadı" diyen hiçbir mesaj yoktu. Sıfır trade "strateji
+     sinyal üretmedi" gibi görünüyordu.
+   - İlk onaylanan çözüm ("gap'li sembolü ele, diğerleriyle devam et") matematiksel olarak
+     uygulanamaz çıktı: `_align_timestamps` her sembolü kesişimin AYNISINA (`common`)
+     indirgediği için hizalama sonrası TÜM sembollerin timestamp'leri birebir aynı —
+     "gap'li sembol" diye bir şey yok, ya hepsi gap'li ya hiçbiri.
+
+   **Fix (`app/backtesting/backtester.py::_run_multi`, tek dosya, flag yok — koruma/doğruluk
+   düzeltmesi, yeni yetenek değil):**
+   - Hizalamadan ÖNCE, her sembolün modal timestamp deltası karşılaştırılıyor; farklıysa
+     `ValueError` (karışık timeframe, ör. 1h × 2h — CLI'dan imkânsız, `settings.timeframe`
+     tek skaler, sadece programatik `Backtester().run(dict)` çağrısıyla oluşur = çağıran
+     hatası; suçlu sembol burada hâlâ belli).
+   - Hizalama sonrası boş ya da `warmup_candles+1`'den kısa kesişim → net bir uyarı
+     (`logger.warning`) + dokunulmamış `portfolio` dönüşü — artık sessiz değil.
+   - Hizalanmış ortak eksende `DataValidator._timestamps_are_evenly_spaced()` (yeniden
+     kullanılıyor, yeni gap tespiti yazılmadı) `False` dönerse `ValueError` — mesaj beklenen
+     periyodu, eksik timestamp'leri ve **o timestamp'i taşımayan orijinal sembolleri**
+     (`_describe_alignment_gap`, `prepared`'daki hizalanmamış veriden hesaplanıyor) adlandırıyor.
+     Sembol ELEME yok (yukarıdaki matematiksel imkânsızlık nedeniyle) — tüm çalıştırma
+     durduruluyor; bu, geçersiz ham veri için kullanılan "sembolü atla, devam et" davranışıyla
+     ÇELİŞMİYOR, çünkü o karar hizalamadan ÖNCE (suçlu hâlâ belliyken) veriliyor, bu kontrol
+     hizalamadan SONRA (suçlu artık belirlenemezken) çalışıyor.
+   - Kesişim `DataValidator.MINIMUM_ROWS` (60)'ın altındaysa ama en az bir adım üretiyorsa:
+     durdurmuyor, sadece kaç adım çalışacağını söyleyen non-fatal bir uyarı.
+   - `_align_timestamps()`'in imzası/dönüş sözleşmesi/logladığı mesajlar DEĞİŞMEDİ (testler
+     onu doğrudan statik metot olarak çağırıyor).
+   Testler: `tests/test_multi_position_backtester.py`'e 6 yeni test (boş kesişim, çok kısa
+   kesişim, MINIMUM_ROWS altı-ama-çalışan kesişim, karışık timeframe, hizalanmış eksende gap,
+   temiz örtüşmede yeni uyarı üretilmediğinin regresyon testi). Mevcut 4 senaryo (500v450,
+   500v500, invalid-symbol-skip, main_multi_position BTC/ETH) hiçbiri yeni kapıları
+   tetiklemiyor. Tüm suite: 275 passed.
 6. ✅ **DÜZELTİLDİ (2026-08-16)** — `SharpeRatio.calculate()`/`SortinoRatio.calculate()`
    sıfır standart sapma/sıfır downside-deviation durumunda (ör. tüm periyotlar kazançlı,
    `test_ema_rsi_walk_forward.py`'deki all-win pencereler) sessizce `0.0` döndürüyordu —
@@ -606,3 +677,20 @@ Tüm suite bu turdan sonra: 261 passed.
    birim testleri, `tests/test_performance.py`'deki `test_sortino_ratio_no_downside_returns_zero`
    `test_sortino_ratio_no_downside_returns_infinite` olarak güncellendi + flat-history=0.0
    testleri eklendi. Tüm suite: 269 passed.
+7. 📋 **İLERİDE DEĞERLENDİRİLECEK (2026-08-16, madde 5'in fix'i sırasında bulundu,
+   BİLİNÇLİ OLARAK dokunulmadı)** — `DataValidator._timestamps_are_evenly_spaced()`
+   (`app/data/validator.py:128-150`) her delta'yı medyanın 1.5 katıyla karşılaştırıyor;
+   bu kural delinebilir. Ölçüm: deltaların çoğunluğu 2h olan bir seride gerçek bir 3h boşluk
+   `3h <= 1.5 × 2h` olduğu için (sınır durumu, `<=` kapsayıcı) kuralı geçiyor. Modal-delta
+   eşitliği (her delta TAM OLARAK en sık görülen değere eşit olmalı) bunu yakalar — ölçümle
+   doğrulandı: aynı test senaryosunda `False` dönüyor, ve mevcut `test_data_validator.py`'deki
+   gap testini (10 saatlik boşluk) de hâlâ doğru reddediyor.
+   **Neden dokunulmadı:** `DataValidator` main.py/dashboard/`--scan`/canlı paper trading
+   dahil TÜM veri giriş noktalarının PAYLAŞTIĞI ortak bir guard (`app/main.py:50,262`,
+   `app/web/dashboard_data.py:46`, `app/services/market_analyzer.py:21`,
+   `app/backtesting/backtester.py:151`). Madde 5'teki gap sorunu üretim yolunda pratikte
+   ULAŞILAMAZ olduğu ölçümle kanıtlandı (bkz. madde 5) — ulaşılamaz bir bug'ı düzeltmek için,
+   ÖZELLİKLE gözetimsiz çalışan canlı paper trading döngüsünde, veriyi daha sık reddeden
+   gerçek bir davranış değişikliği yapmak ters etki yapardı (kullanıcı kararı). Modal-delta'ya
+   geçiş isteniyorsa bu ayrı, kendi planı olan bir iş olarak ele alınmalı — beş giriş
+   noktasının hepsindeki davranış değişikliğinin etkisi ayrıca değerlendirilmeli.
