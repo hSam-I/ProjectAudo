@@ -1009,3 +1009,19 @@ Tüm suite bu turdan sonra: 351 passed.
    gerçek bir davranış değişikliği yapmak ters etki yapardı (kullanıcı kararı). Modal-delta'ya
    geçiş isteniyorsa bu ayrı, kendi planı olan bir iş olarak ele alınmalı — beş giriş
    noktasının hepsindeki davranış değişikliğinin etkisi ayrıca değerlendirilmeli.
+8. ✅ **DÜZELTİLDİ (2026-08-18)** — `tests/test_live_trader.py`'de 3 test
+   (`test_poll_once_evaluates_and_logs_after_warmup`,
+   `test_poll_once_processes_multiple_new_candles_in_order`,
+   `test_run_forever_writes_a_status_heartbeat_before_each_wait`) `settings.enable_live_paper_trading`'i
+   `monkeypatch` ile izole etmiyordu, varsayılan `False`'a örtük olarak güveniyordu. Bu
+   makinede `.env`'de `ENABLE_LIVE_PAPER_TRADING=true` olması (önceki canlı-bot oturumundan
+   kalma) bu 3 testi kırdı — `pytest --collect-only` 356 test topluyordu ama tam suite
+   353 passed/3 failed veriyordu, "356 test yeşil" varsayımı yanlıştı. Fix `.env`'e DOKUNMADI
+   (canlı bot konfigürasyonu) — bunun yerine 3 teste, dosyadaki diğer testlerin zaten
+   kullandığı desenle (örn. `test_observe_mode_never_constructs_a_backtester`)
+   `monkeypatch.setattr(settings, "enable_live_paper_trading", False)` eklendi. Tüm suite: 356 passed.
+   **Ders (madde 2'deki `data/` sızıntısı dersiyle aynı kategoriden):** testler `.env`'den
+   bağımsız olmalı — `Settings` bir `.env` dosyasından okuduğu için (`app/config/settings.py:10`),
+   `settings.<alan>` okuyan/dallanan HER test o alanı ya açıkça `monkeypatch`'lemeli ya da
+   sonucun `.env`'deki değerden bağımsız olduğunu doğrulamalı; aksi halde test suite'in
+   yeşilliği çalıştığı makinenin `.env` içeriğine bağlı, taşınabilir olmayan bir hale gelir.

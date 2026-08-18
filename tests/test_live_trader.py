@@ -218,6 +218,8 @@ def test_poll_once_evaluates_and_logs_after_warmup(monkeypatch, caplog):
 
     import logging
 
+    monkeypatch.setattr(settings, "enable_live_paper_trading", False)
+
     _force_decision(monkeypatch, signal=Signal.BUY)
 
     closed = _synthetic_df(settings.warmup_candles + 5)
@@ -237,6 +239,8 @@ def test_poll_once_evaluates_and_logs_after_warmup(monkeypatch, caplog):
 
 
 def test_poll_once_processes_multiple_new_candles_in_order(monkeypatch):
+
+    monkeypatch.setattr(settings, "enable_live_paper_trading", False)
 
     calls = []
 
@@ -515,6 +519,8 @@ def test_corrupt_prior_status_file_resets_restart_count_instead_of_raising(tmp_p
 
 
 def test_run_forever_writes_a_status_heartbeat_before_each_wait(monkeypatch):
+
+    monkeypatch.setattr(settings, "enable_live_paper_trading", False)
 
     closed = _synthetic_df(5)
     feed = FakeFeed(closed, closed.iloc[-1:])
