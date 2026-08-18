@@ -154,6 +154,52 @@ class Settings(BaseSettings):
     web_port: int = 8000
 
     # =====================================================
+    # FUNDING ARBITRAGE (paper trading only - see app/arbitrage/)
+    #
+    # Spot long + perpetual short, delta-neutral, harvesting funding
+    # payments. Fully separate from the strategy/backtest pipeline
+    # above (no DecisionEngine/BaseStrategy/Backtester involvement) -
+    # see CLAUDE.md's funding-arbitrage plan for why. starting_balance
+    # (ACCOUNT section above) is reused as-is for this module's paper
+    # capital - deliberately no separate balance setting here.
+    # =====================================================
+
+    enable_funding_arbitrage: bool = False
+
+    funding_arb_symbol: str = "BTC/USDT"
+
+    # 1x = ~99.6% price-rise buffer before liquidation (measured
+    # negligible risk); 5x+ has historically been breached during
+    # single 8h windows (BTC/ETH, 2019-2026 measurement). Default kept
+    # at the safe end deliberately - raising it is a real risk
+    # tradeoff, not a tuning knob.
+    funding_arb_leverage: int = 1
+
+    # Binance USDT-M futures' lowest-notional-tier maintenance margin
+    # rate for BTCUSDT/ETHUSDT (public tier table; the authenticated
+    # fetchLeverageTiers endpoint isn't available to this measurement).
+    # Only relevant at funding_arb_leverage > 1.
+    funding_arb_maintenance_margin_rate: float = 0.004
+
+    # Auto-close fires once the remaining distance to the theoretical
+    # liquidation price drops to this fraction of its original value
+    # (e.g. 0.5 = halfway there) - capital preservation, unrelated to
+    # funding sign.
+    funding_arb_liquidation_warning_pct: float = 0.5
+
+    # Circuit breaker only - comfortably above the worst historical
+    # streak measured (24 periods BTC / 25 periods ETH, ~8-8.3 days).
+    # Routine short negative stretches are held through by design, not
+    # reacted to - see the funding-arbitrage plan's position logic.
+    funding_arb_max_negative_streak: int = 40
+
+    # Binance USDM futures base taker fee (VIP0, no discount) - spot
+    # leg reuses `commission` above.
+    funding_arb_futures_fee: float = 0.0005
+
+    funding_arb_poll_buffer_seconds: int = 10
+
+    # =====================================================
     # VALIDATORS
     # =====================================================
 
