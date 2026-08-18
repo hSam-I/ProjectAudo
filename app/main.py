@@ -1,6 +1,12 @@
 import json
 from pathlib import Path
 
+from app.arbitrage.arbitrage_state_store import (
+    ArbitrageStateCorruptError,
+    ArbitrageStateStore,
+)
+from app.arbitrage.arbitrage_status_store import ArbitrageStatusStore
+from app.arbitrage.funding_trader import FundingArbitrageTrader
 from app.backtesting.backtester import Backtester
 from app.backtesting.performance import PerformanceAnalyzer
 from app.config.settings import settings
@@ -561,6 +567,119 @@ def run_live_status():
     print("=" * 70)
 
 
+def run_funding_arbitrage():
+    """
+    Starts an indefinite funding-arbitrage paper-trading loop for
+    settings.funding_arb_symbol - see FundingArbitrageTrader.
+
+    settings.enable_funding_arbitrage controls whether it actually
+    opens a position (default False means OBSERVE ONLY, mirroring
+    --live's enable_live_paper_trading split) - deliberately NOT
+    auto-enabled by this entrypoint, same reasoning as
+    run_live_paper_trading: opening a paper position is high enough
+    stakes that it requires an explicit settings/.env opt-in on top of
+    `--funding-arb`, not just the CLI flag alone.
+    """
+
+    trader = FundingArbitrageTrader()
+
+    try:
+
+        trader.run_forever()
+
+    except KeyboardInterrupt:
+
+        logger.info(f"{trader.symbol}: funding-arbitrage loop stopped by user")
+
+
+def run_funding_arb_status():
+    """
+    One-shot console summary of a separately running --funding-arb
+    process's on-disk state - reads ArbitrageStatusStore/
+    ArbitrageStateStore directly (no network, no live process needed),
+    the same read-only spirit as run_live_status().
+    """
+
+    print()
+    print("=" * 70)
+    print("         PROJECT AUDO - FUNDING ARBITRAGE STATUS")
+    print("=" * 70)
+
+    try:
+        heartbeat = ArbitrageStatusStore.load()
+    except ArbitrageStateCorruptError as e:
+
+        print("Status file is corrupt:")
+        print(f"  {e}")
+        print("=" * 70)
+
+        return
+
+    if heartbeat is None:
+
+        print("No funding-arbitrage process has run yet.")
+        print("Start one with: python -m app.main --funding-arb")
+        print("=" * 70)
+
+        return
+
+    print(f"Symbol           : {heartbeat['symbol']}")
+    print(f"Started At       : {heartbeat['started_at']}")
+    print(f"Restart Count    : {heartbeat['restart_count']}")
+    print(f"Poll Count       : {heartbeat['poll_count']}")
+    print(f"Error Count      : {heartbeat['error_count']}")
+    print(f"Last Poll At     : {heartbeat['last_poll_at'] or '-'}")
+    print(f"Next Poll Due At : {heartbeat['next_poll_due_at'] or '-'}")
+    print(f"Last Error       : {heartbeat['last_error'] or '-'}")
+
+    separator()
+
+    if heartbeat["position_status"] is None:
+
+        print("No open position.")
+
+    else:
+
+        margin_ratio = heartbeat["margin_ratio"]
+        cumulative_funding = heartbeat["cumulative_funding"]
+
+        print(f"Position Status  : {heartbeat['position_status']}")
+        print(
+            f"Margin Ratio     : {margin_ratio:.4f}"
+            if margin_ratio is not None
+            else "Margin Ratio     : -"
+        )
+        print(
+            f"Cumulative Funding: {cumulative_funding:+.4f}"
+            if cumulative_funding is not None
+            else "Cumulative Funding: -"
+        )
+
+    separator()
+
+    try:
+        _, closed_positions = ArbitrageStateStore.restore()
+    except ArbitrageStateCorruptError as e:
+
+        print("State file is corrupt:")
+        print(f"  {e}")
+        print("=" * 70)
+
+        return
+
+    print(f"Closed Positions : {len(closed_positions)}")
+
+    if closed_positions:
+
+        total_realized_funding = sum(
+            position.cumulative_funding for position in closed_positions
+        )
+
+        print(f"Total Realized Funding (closed positions): {total_realized_funding:+.4f}")
+
+    print("=" * 70)
+
+
 if __name__ == "__main__":
 
     import argparse
@@ -608,6 +727,18 @@ if __name__ == "__main__":
         help="Print a one-shot summary of a separately running --live/--web process's on-disk status.",
     )
 
+    mode.add_argument(
+        "--funding-arb",
+        action="store_true",
+        help="Start an indefinite funding-arbitrage paper-trading loop for settings.funding_arb_symbol.",
+    )
+
+    mode.add_argument(
+        "--funding-arb-status",
+        action="store_true",
+        help="Print a one-shot summary of a separately running --funding-arb process's on-disk status.",
+    )
+
     args = parser.parse_args()
 
     if args.walk_forward:
@@ -622,5 +753,9 @@ if __name__ == "__main__":
         run_web_server()
     elif args.live_status:
         run_live_status()
+    elif args.funding_arb:
+        run_funding_arbitrage()
+    elif args.funding_arb_status:
+        run_funding_arb_status()
     else:
         main()

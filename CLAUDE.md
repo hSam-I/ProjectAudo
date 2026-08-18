@@ -1025,14 +1025,52 @@ Testler: `app/arbitrage/position.py`'ye eklenen `compute_deployable_notional`/
 sanity-check/funding-kaydı/likidasyon-otomatik-kapatma/negatif-seri-devre-kesici/
 run_forever dayanıklılığı/state restore/restart_count). Tüm suite: 471 passed.
 
-**Kapsam dışı (bu turda YAPILMAYACAK, plan onayında netleştirildi):** gerçek emir
-gönderimi/API key entegrasyonu (yapısal olarak imkânsız kalmaya devam ediyor, Faz 4'te
-`app/arbitrage/*.py`'yi tarayan paralel bir statik güvenlik testiyle KİLİTLENECEK — bu
-tur henüz o testi yazmadı, sadece kaynak kodda `create_order`/`apiKey`/`secret`
-geçmediği elle grep'lendi), çoklu borsa, otomatik/dinamik kaldıraç ayarı, basis'e
-dayalı otomatik giriş/çıkış (sadece log/gözlem), web dashboard (`--funding-arb-status`
+**Faz 4 — statik güvenlik testi + CLI (SON FAZ).**
+`tests/test_arbitrage_never_places_real_orders.py::test_arbitrage_modules_never_reference_real_order_placement`
+— `tests/test_live_trader.py`'deki güvenlik testinin PARALEL eşdeğeri (o testin glob'u
+sadece `app/execution/live_*.py`'yi kapsıyor, `app/arbitrage/`'a hiç ulaşmıyor).
+`app/arbitrage/`'da `live_*` gibi bir isim konvansiyonu olmadığı için glob `*.py` —
+İSİM KALIBINA GÖRE DEĞİL, dizindeki HER `.py` dosyası taranıyor (kullanıcı isteği).
+Aynı yasaklı kelime listesi (`create_order`/`create_market_order`/`create_limit_order`/
+`apiKey`/`secret`) + aynı "en az N dosya tarandı" savunma alt sınırı (glob'un sessizce
+boş eşleşmesine karşı, Sekizinci tur'daki desen) — 7 dosya var, alt sınır 5.
+
+`python -m app.main --funding-arb-status` (`app/main.py::run_funding_arb_status()`) —
+`ArbitrageStatusStore`/`ArbitrageStateStore`'u DOĞRUDAN okuyan, ağa hiç çıkmayan
+tek-seferlik konsol özeti (`--live-status`'ün deseni, ama `load_live_status()` gibi
+paylaşılan bir data-layer katmanı YOK — funding-arb'ın henüz bir web route tüketicisi
+olmadığı için o dolaylılık kurulmadı, YAGNI).
+
+**Not (plana sonradan eklenen kapsam, şeffaflık için yazılıyor):** onaylanan planın
+Faz 4 maddesi sadece `--funding-arb-status`'tan bahsediyordu, `FundingArbitrageTrader.
+run_forever()`'ı gerçekten BAŞLATAN bir CLI modu planda YOKTU — bu, `--live-status`'un
+her zaman bir `--live`'ı olduğu ama funding-arb'ın hiç olmadığı, gözden kaçmış bir plan
+boşluğuydu (bu turun başındaki "aylarca çalıştırıp gözlemleyeceğiz" amacı bu olmadan
+gerçekleştirilemezdi). `python -m app.main --funding-arb` (`run_funding_arbitrage()`,
+`run_live_paper_trading()`'in birebir aynısı: `FundingArbitrageTrader().run_forever()`'ı
+çağırıp `KeyboardInterrupt`'ı temiz yakalıyor, `settings.enable_funding_arbitrage`'ı
+bu entrypoint AUTO-ENABLE ETMİYOR — pozisyon açmak `.env`/settings üzerinden ayrı bir
+açık onay istiyor, `--live`/`enable_live_paper_trading` ayrımıyla aynı gerekçe) eklendi.
+
+Testler: statik güvenlik testi için 1, `run_funding_arbitrage`/`run_funding_arb_status`
+için 9 (`tests/test_main_funding_arb.py`, `tests/test_main_live.py`/
+`test_main_live_status.py` desenini izliyor). Tüm suite: 481 passed.
+
+Elle duman testi: `python -m app.main --help` iki yeni flag'i gösteriyor,
+`--funding-arb --funding-arb-status` birlikte verildiğinde argparse hata veriyor
+(tek mutually-exclusive group'a düzgün eklendi), `--funding-arb-status` gerçek
+(boş) `data/` klasörüne karşı çalıştırılıp ağa çıkmadan "No funding-arbitrage
+process has run yet" bastığı doğrulandı.
+
+**Kapsam dışı (bu turda YAPILMADI, plan onayında netleştirildi):** gerçek emir
+gönderimi/API key entegrasyonu (yapısal olarak imkânsız — Faz 4'ün statik testiyle
+KİLİTLENDİ), çoklu borsa, otomatik/dinamik kaldıraç ayarı, basis'e dayalı otomatik
+giriş/çıkış (sadece log/gözlem), web dashboard (`/funding-arb` route — `--funding-arb-status`
 CLI'ye ertelendi), voting/DecisionEngine/AI score entegrasyonu, çoklu-sembol eşzamanlı
 funding arb pozisyonu.
+
+Tüm suite bu turdan sonra: 481 passed. Dört faz da tamamlandı — sıradaki adım
+`feature/funding-arbitrage`'in main'e merge edilmesi.
 
 ## Bilinen sorunlar
 
