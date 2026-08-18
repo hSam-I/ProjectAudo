@@ -181,10 +181,10 @@ class Settings(BaseSettings):
     # Only relevant at funding_arb_leverage > 1.
     funding_arb_maintenance_margin_rate: float = 0.004
 
-    # Auto-close fires once the remaining distance to the theoretical
-    # liquidation price drops to this fraction of its original value
-    # (e.g. 0.5 = halfway there) - capital preservation, unrelated to
-    # funding sign.
+    # Auto-close fires once the short leg's isolated margin ratio (see
+    # app/arbitrage/position.py::compute_margin_ratio - 0 = no risk,
+    # 1.0 = liquidation) reaches this fraction (e.g. 0.5 = halfway to
+    # liquidation) - capital preservation, unrelated to funding sign.
     funding_arb_liquidation_warning_pct: float = 0.5
 
     # Circuit breaker only - comfortably above the worst historical
