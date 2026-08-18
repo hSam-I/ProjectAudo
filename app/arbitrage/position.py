@@ -185,3 +185,44 @@ def apply_funding_payment(
     )
 
     return payment
+
+
+def compute_deployable_notional(
+    total_capital: float,
+    leverage: int,
+) -> float:
+    """
+    The spot+perp notional a delta-neutral position can carry from
+    `total_capital` at a given leverage, leaving `total_capital -
+    notional` as perp margin: notional = capital * L / (L + 1)
+    (derived from spot_notional + spot_notional/L = total_capital).
+    At leverage=1 this deploys exactly half the capital (the other
+    half sits as 1:1 margin) - see the funding-arbitrage measurement's
+    capital-efficiency table.
+    """
+
+    return total_capital * leverage / (leverage + 1)
+
+
+def consecutive_negative_funding_streak(
+    funding_events: list,
+) -> int:
+    """
+    Counts consecutive negative-rate entries from the END of
+    funding_events (most recent first) - the circuit-breaker input for
+    settings.funding_arb_max_negative_streak. A single positive
+    settlement resets the streak to 0 by design - routine short
+    negative stretches are held through, this only fires on a
+    SUSTAINED run (see the funding-arbitrage plan's position logic).
+    """
+
+    streak = 0
+
+    for event in reversed(funding_events):
+
+        if event["funding_rate"] < 0:
+            streak += 1
+        else:
+            break
+
+    return streak

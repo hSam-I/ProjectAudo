@@ -4,9 +4,11 @@ from app.arbitrage.position import (
     STATUSES,
     ArbitragePosition,
     apply_funding_payment,
+    compute_deployable_notional,
     compute_funding_payment,
     compute_liquidation_price,
     compute_margin_ratio,
+    consecutive_negative_funding_streak,
     is_liquidation_warning,
 )
 
@@ -317,3 +319,97 @@ def test_apply_funding_payment_accumulates_across_multiple_periods():
     assert position.cumulative_funding == pytest.approx(expected)
     assert len(position.funding_events) == 3
     assert [e["timestamp"] for e in position.funding_events] == ["t1", "t2", "t3"]
+
+
+# ----------------------------------------------------------------
+# compute_deployable_notional
+# ----------------------------------------------------------------
+
+
+def test_deployable_notional_at_leverage_one_is_half_capital():
+
+    assert compute_deployable_notional(10000.0, 1) == pytest.approx(5000.0)
+
+
+@pytest.mark.parametrize(
+    "leverage, expected",
+    [
+        (1, 5000.0),
+        (3, 7500.0),
+        (5, 8333.333333),
+        (10, 9090.909091),
+    ],
+)
+def test_deployable_notional_matches_measured_capital_efficiency_table(
+    leverage, expected,
+):
+
+    assert compute_deployable_notional(10000.0, leverage) == pytest.approx(
+        expected, abs=0.01,
+    )
+
+
+def test_deployable_notional_increases_with_leverage():
+
+    values = [
+        compute_deployable_notional(10000.0, leverage)
+        for leverage in [1, 2, 3, 5, 10, 20]
+    ]
+
+    assert values == sorted(values)
+    assert values[-1] < 10000.0
+
+
+# ----------------------------------------------------------------
+# consecutive_negative_funding_streak
+# ----------------------------------------------------------------
+
+
+def test_streak_is_zero_for_empty_history():
+
+    assert consecutive_negative_funding_streak([]) == 0
+
+
+def test_streak_is_zero_when_most_recent_is_positive():
+
+    events = [
+        {"funding_rate": -0.0001},
+        {"funding_rate": -0.0001},
+        {"funding_rate": 0.0001},
+    ]
+
+    assert consecutive_negative_funding_streak(events) == 0
+
+
+def test_streak_counts_only_the_trailing_negative_run():
+
+    events = [
+        {"funding_rate": 0.0001},
+        {"funding_rate": -0.0001},
+        {"funding_rate": -0.0001},
+        {"funding_rate": -0.0001},
+    ]
+
+    assert consecutive_negative_funding_streak(events) == 3
+
+
+def test_streak_resets_after_a_positive_settlement_in_the_middle():
+
+    events = [
+        {"funding_rate": -0.0001},
+        {"funding_rate": -0.0001},
+        {"funding_rate": 0.0001},
+        {"funding_rate": -0.0001},
+    ]
+
+    assert consecutive_negative_funding_streak(events) == 1
+
+
+def test_zero_funding_rate_does_not_count_as_negative():
+
+    events = [
+        {"funding_rate": -0.0001},
+        {"funding_rate": 0.0},
+    ]
+
+    assert consecutive_negative_funding_streak(events) == 0

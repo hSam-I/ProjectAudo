@@ -877,6 +877,163 @@ yeni (`test_live_status_data.py`), 14 yeni (`test_charts.py`, YENİ dosya), 2 ye
 (`test_web_server.py`) — toplam 32 yeni test, hiçbir mevcut test değişmedi.
 Tüm suite bu turdan sonra: 351 passed.
 
+## Onuncu tur: funding rate arbitrajı — paper trading (branch
+`feature/funding-arbitrage`, main'e merge bekleniyor, 2026-08-18)
+
+Önceki turda (bu bölümün dışında, saf konuşma-içi bir ölçüm turunda — CLAUDE.md'ye
+"Bilinen sorunlar" maddesi olarak işlenmedi, sadece burada özetleniyor) dört strateji + voting'in hepsinin
+negatif beklenen değer verdiği, buy&hold'un hepsini ezdiği ölçülmüştü. Bunun üzerine
+yön-tahmini bırakılıp yapısal bir fırsat (Binance perpetual funding rate arbitrajı:
+spot long + perpetual short, delta-nötr, funding tahsilatı) ölçüldü — BTC/ETH'de
+~9 yıllık gerçek veriyle gross ~%11-14/yıl, 1x-3x kaldıraçta likidasyon riski gerçek
+dışı çıktı (ayrıntı için ölçüm turunun sonuçlarına bkz., bu tur sadece PLANI ve
+UYGULAMAYI kapsıyor). Bu turda bunu **paper trading olarak koda geçirme** planı
+onaylandı (kodsuz, 7 maddelik bir plan — mimari uyumsuzluk, veri katmanı, pozisyon
+mantığı, risk takibi, güvenlik, fazlama, kapsam dışı) ve fazlarca uygulandı, her
+fazdan sonra tam suite + push + kullanıcı onayı.
+
+**Mimari karar (planı belirledi):** `Backtester`'a hiç dokunulmadı — long-only/tek-
+bacaklı mimarisi (short açamıyor, kaldıraç/marj/likidasyon modellemiyor, P&L kaynağı
+fiyat hareketi) funding arbitrajının iki-bacaklı/kaldıraçlı/funding-tahsilatlı
+doğasına hiç oturmuyor. Tamamen ayrı bir modül: `app/arbitrage/` — `app/execution/
+live_*.py`'nin (LiveFeed/LiveTrader/LiveStateStore) izlediği bağımsız-poll-döngüsü
+desenine benziyor, `DecisionEngine`/`BaseStrategy`/`SignalScorer`/`ScoreEngine`'in
+hiçbirine bağlı değil.
+
+**Önce baseline düzeltmesi (main'e, `bf34d66`, ayrı commit — bkz. "Bilinen sorunlar"
+madde 8):** kullanıcı bağımsız clone'unda 356/356 gördü, burada `httpx` eksikti
+(349 topluyordu) VE `.env`'deki `ENABLE_LIVE_PAPER_TRADING=true` (önceki canlı-bot
+oturumundan kalma) 3 testi kırıyordu (izole edilmemişlerdi). İkisi de düzeltildi,
+`.env`'e dokunulmadı — testler `.env`'den bağımsız olmalı dersi ayrıca not düşüldü.
+
+**Faz 0 — settings + veri katmanı.** `Settings`'e tamamen ekleme bir `FUNDING
+ARBITRAGE` bölümü (`enable_funding_arbitrage=False`, `funding_arb_symbol="BTC/USDT"`,
+`funding_arb_leverage=1` — ölçümün güvenli ucu, `funding_arb_maintenance_margin_rate=
+0.004`, `funding_arb_liquidation_warning_pct=0.5`, `funding_arb_max_negative_streak=40`
+— ölçülen en kötü tarihsel serinin (24-25 periyot) belirgin üstünde, `funding_arb_
+futures_fee=0.0005`, `funding_arb_poll_buffer_seconds=10`). `starting_balance` kasıtlı
+olarak YENİ bir alan almadı — mevcut `settings.starting_balance` doğrudan kullanılıyor
+(parametrik kalması için, kullanıcı isteği). `app/arbitrage/funding_data_provider.py::
+FundingDataProvider` — spot bacak için mevcut `BinanceProvider`'ı composition ile
+sarıyor, perp bacak için kendi ince ccxt-futures wrapper'ı (`fetch_funding_rate_history`/
+`fetch_funding_rate`/`fetch_perp_ticker`, `options={"defaultType":"future"}` gerekiyor
+çünkü perp `BTC/USDT:USDT` spot `BTC/USDT`'den farklı bir market). `DataProvider`
+ABC'sine BİLİNÇLİ OLARAK dokunulmadı — funding rate/perp ticker OHLCV-şekilli değil,
+`BinanceProvider` o ABC'nin tek tüketicisiydi (doğrulandı). Tüm suite: 380 passed.
+
+**Faz 1 — `ArbitragePosition` + saf hesaplama.** `app/arbitrage/position.py`: spot+perp
+bacak alanları, funding defteri (`cumulative_funding`/`funding_events`), state machine
+için `status` alanı (`OPENING/OPEN/UNBALANCED/CLOSING/CLOSED`). Dört saf fonksiyon
+(I/O yok): `compute_liquidation_price`/`compute_margin_ratio` — **AYNI** izole-marj-
+oranı=1.0 tanımından türetildi (biri eşik kontrolü yaparken diğeri tampon raporlarsa
+sessiz tutarsızlık riski olurdu — proje tarihinde tam bu kategoriden bug'lar bulunmuştu,
+bkz. "Yedinci tur" madde 6/"Dördüncü tur" madde 14'teki `StrategyStats` adapter
+eksikliği gibi örnekler), `test_margin_ratio_at_computed_liquidation_price_is_exactly_one`
+ile 6 kaldıraç değerinde doğrulandı. Bu, ölçüm turunun kullandığı Binance'in
+BASİTLEŞTİRİLMİŞ genel yaklaşık formülünden (`entry×(1+1/L−mmr)`) FARKLI — kesin
+formül, mmr=0.004'te tüm kaldıraçlarda <0.5 puan fark veriyor (daha muhafazakâr yönde,
+`test_liquidation_buffer_matches_measurement_within_tolerance` ile çapraz kontrol
+edildi). `is_liquidation_warning` (Faz 3'ün otomatik kapatma tetikleyicisi) ve
+`apply_funding_payment`/`compute_funding_payment` (funding tahsilat aritmetiği,
+Binance konvansiyonu: rate>0 → long'lar short'lara öder, bu stratejinin perp bacağı
+short olduğu için pozitif rate gelir demek). Tüm suite: 411 passed.
+
+**Faz 2 — sıralı iki-bacak fill + `UNBALANCED` tespiti/unwind.**
+`app/arbitrage/execution.py::ArbitrageExecutor` — bilinçli olarak ATOMİK DEĞİL: her
+bacak kendi gerçek-zamanlı ticker fetch + slippage (`SlippageModel`) + fee (`FeeModel`)
+işlemi, art arda — gerçek bir canlı sürümün sahip olacağı TAM AYNI hata modu (cross-
+market atomik execution diye bir şey yok), bu fazın amacı da tam olarak bu: bacak
+senkronizasyon riskini varsaymak yerine PROVA ETMEK. `ExecutionEngine`/`PaperBroker`/
+`Trade` YENİDEN KULLANILMADI (tek-bacaklı spot-only semantik varsayıyorlar),
+`FeeModel`/`SlippageModel` doğrudan reuse edildi.
+
+`open_position`: ÖNCE spot bacak (satın al), SONRA perp short. Perp bacak başarısız
+olursa spot bacak OTOMATİK geri satılır (unwind) ve orijinal hata yeniden fırlatılır —
+asla kazara çıplak long'ta bırakmıyor. Unwind'in kendisi de başarısız olursa
+`UnbalancedPositionError` (yeniden denenmiyor/yutulmuyor, gerçek tek-bacaklı maruziyet).
+
+`close_position`: ÖNCE perp bacak, SONRA spot — **BUNU BİLE BİLE SİMETRİK KURULMADI:**
+açılış ve kapanışta bacak sırası kasıtlı olarak TERS. Gerekçe risk profili asimetrik
+olduğu için: kapanışta spot-önce gidilseydi ve perp bacak kapanamazsa, pozisyon
+KALDIRAÇLI ÇIPLAK SHORT'ta kalırdı (teorik olarak sınırsız kayıp riski — tam da bu
+stratejinin 3 faz boyunca korumaya çalıştığı bacak). Perp-önce giderek en kötü
+senaryo çıplak LONG'a düşürülüyor (sınırlı kayıp, en fazla spot pozisyon değeri kadar).
+Açılışta ise spot-önce gidiliyor çünkü orada henüz kaldıraç/marj devrede değil — ilk
+bacağın başarısız/unwind edilmesi gereken taraf olması risk açısından önemsiz, o yüzden
+açılışta hangi bacağın önce gideceği simetriyi bozmadan seçilebildi (spot-önce, sadece
+"parayı önce elden çıkar" sıralaması). **Not (ileride biri "neden simetrik değil" diye
+sorup düzeltmeye kalkmasın diye açıkça yazıldı — kullanıcı talebi):** bu simetrisizlik
+BİLİNÇLİ bir risk kararı, gözden kaçmış bir tutarsızlık değil.
+
+Testler: happy-path'te iki bacağın AYNI temel-varlık miktarını paylaştığı (gerçek
+delta-nötrlük, notional'dan bağımsız yeniden hesaplanmıyor) + fee'lerin bacak başına
+doğru oranla hesaplandığı; perp-açılış hatası → spot unwind + orijinal hata yeniden
+fırlatılıyor + HİÇBİR ZAMAN bir pozisyon dönmüyor; unwind de başarısız → 
+`UnbalancedPositionError`, mesaj hem perp hem unwind sebebini adlandırıyor; kapanışta
+perp hatası → pozisyon dokunulmamış `OPEN` kalıyor; kapanışta spot hatası → pozisyon
+gerçekten `UNBALANCED` işaretleniyor (asla sessizce `OPEN`/`CLOSED` görünmüyor). Tüm
+suite: 423 passed.
+
+**Faz 3 — risk izleme + funding tahsilatı poll döngüsü.**
+`app/arbitrage/funding_trader.py::FundingArbitrageTrader` — `LiveTrader`'ın
+dayanıklılık desenini birebir taşıyor: `run_forever()`'ın her iterasyonu kendi
+try/except'inde (geçici hata → logla+say+bekle+devam, `UnbalancedPositionError` VE
+YENİ `ArbitrageStateCorruptError` ASLA geçici sayılmıyor, loop'u durduruyor),
+`_save_status_heartbeat()` failure-isolated (heartbeat içindeki fiyat fetch'i bile
+ayrıca korunuyor — fiyat alınamazsa heartbeat `margin_ratio=None` ile yine yazılıyor,
+hiç yazılmamak yerine). `enable_funding_arbitrage=False` iken sonsuza kadar gözlem
+modunda kalıyor (mirror: `enable_live_paper_trading`), `True` iken her poll'de (henüz
+pozisyon yoksa) açılış denenir — anlık funding negatifse veya spot/perp basis'i
+`MAX_SANE_BASIS_PCT=%0.5`'i (ölçümün gözlemlediği ~%0.07-0.08 std/~%0.2 99. persentil
+üstünde, borsa-açılış-günü aykırı değerleri hariç) aşıyorsa o poll'de açılmıyor, bir
+sonraki poll'de tekrar denenir (tek seferlik "dene ve asla tekrar deneme" değil).
+
+Pozisyon açıkken her poll: `apply_funding_payment` ile o periyodun funding'i
+kaydediliyor, `compute_margin_ratio` + `is_liquidation_warning` kontrol ediliyor —
+eşik aşılırsa **gerçek aksiyon** (sadece log değil): `executor.close_position(...)`
+üzerinden kapatılıyor, yani Faz 2'nin unwind güvenceleri otomatik kapatmada da aynen
+geçerli. Aynı şekilde `consecutive_negative_funding_streak` devre kesiciye
+(`funding_arb_max_negative_streak`) ulaşırsa da `executor.close_position(...)`
+üzerinden zorla kapatılıyor — ikisi de AYNI `_close()` yardımcı metodundan geçiyor,
+tek kod yolu.
+
+`app/arbitrage/arbitrage_state_store.py::ArbitrageStateStore` (açık pozisyon + kapanmış
+pozisyon geçmişi, `LiveStateStore` ile AYNI atomic-write deseni ama BİLİNÇLİ OLARAK
+yeniden yazıldı, import edilmedi — `app/arbitrage/`'ın `app/execution/`'dan tamamen
+bağımsız kalması için) + `ArbitrageStatusStore` (saf heartbeat/telemetri, ayrı dosya —
+`LiveStatusStore`'un dosyasını PAYLAŞMIYOR, aksi halde `--live` ve funding-arb aynı anda
+çalışırsa heartbeat'leri birbirini ezerdi). `ArbitrageStateCorruptError`: state dosyası
+(gerçek funding geçmişi taşıyor) bozuksa ASLA sıfırlanmıyor, `__init__`'ten fırlıyor —
+status dosyası (saf telemetri) bozuksa `restart_count` sessizce 0'a resetleniyor
+(`LiveTrader`'ın `LiveStatusStore` bozukluğuna verdiği tepkiyle birebir aynı ayrım).
+`poll_once()` sonunda `ArbitrageStateStore.save(...)` BİLİNÇLİ OLARAK failure-isolated
+DEĞİL (heartbeat'in aksine) — gerçek trading state'i taşıyor, bir yazma hatası
+`run_forever`'ın genel except'ine düşüp loglanıp/sayılıp/tekrar denenmeli, sessizce
+yutulmamalı (`LiveStateStore.save()`'in `LiveTrader._paper_trade_step`'te sarmalanmadan
+çağrılmasıyla aynı ayrım).
+
+**Test yazarken bulunan gerçek bug (ders):** ilk `run_forever` testleri gerçek
+`time.sleep()`'e çarpıp (bir sonraki funding saatine kadar, ~8 saate kadar) test
+komutunu sonsuza kadar bekletti — `LiveFeed`'in `FakeFeed`'i `wait_for_next_candle()`'ı
+no-op yapıyordu ama `FundingArbitrageTrader._wait_for_next_funding()`'in enjekte
+edilebilir bir eşdeğeri yoktu. Düzeltme: ilgili 4 `run_forever` testinde
+`monkeypatch.setattr(trader, "_wait_for_next_funding", lambda: None)`.
+
+Testler: `app/arbitrage/position.py`'ye eklenen `compute_deployable_notional`/
+`consecutive_negative_funding_streak` için 11, `ArbitrageStateStore` için 8,
+`ArbitrageStatusStore` için 6, `FundingArbitrageTrader` için 25 (observe-only/açılış
+sanity-check/funding-kaydı/likidasyon-otomatik-kapatma/negatif-seri-devre-kesici/
+run_forever dayanıklılığı/state restore/restart_count). Tüm suite: 471 passed.
+
+**Kapsam dışı (bu turda YAPILMAYACAK, plan onayında netleştirildi):** gerçek emir
+gönderimi/API key entegrasyonu (yapısal olarak imkânsız kalmaya devam ediyor, Faz 4'te
+`app/arbitrage/*.py`'yi tarayan paralel bir statik güvenlik testiyle KİLİTLENECEK — bu
+tur henüz o testi yazmadı, sadece kaynak kodda `create_order`/`apiKey`/`secret`
+geçmediği elle grep'lendi), çoklu borsa, otomatik/dinamik kaldıraç ayarı, basis'e
+dayalı otomatik giriş/çıkış (sadece log/gözlem), web dashboard (`--funding-arb-status`
+CLI'ye ertelendi), voting/DecisionEngine/AI score entegrasyonu, çoklu-sembol eşzamanlı
+funding arb pozisyonu.
+
 ## Bilinen sorunlar
 
 1. ✅ **DÜZELTİLDİ (2026-08-10)** — AI score bazı yollarda her zaman 0 dönüyordu.
